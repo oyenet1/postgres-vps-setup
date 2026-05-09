@@ -29,42 +29,73 @@ This project solves all of that in one idempotent, repeatable script.
 
 ---
 
-## Before You Start: Get Google Drive Token
+## Before You Start: Google Drive Setup
 
-**You need an rclone Google Drive token first.** On your local machine:
+The setup script will configure rclone automatically on your VPS. When prompted:
 
-```bash
-# 1. Install rclone
-curl https://rclone.org/install.sh | sudo bash
+1. **Choose `n`** (New remote)
+2. **Name:** `gdrive`
+3. **Storage:** `drive`
+4. **Google Drive:** `y`
+5. **Scope:** `y` (Full access)
+6. **ID/Secret:** Leave empty
+7. **Auto config:** `n` (headless)
 
-# 2. Configure rclone with Google Drive
-rclone config
-# Select: n (New remote) → drive → y (Google Drive) → stay at default → y (Yes) → n (No team drive) → y (Yes complete) → q (Quit)
+Then you'll see a URL - open it in your browser, authorize Google Drive, and paste the verification code back into the terminal.
 
-# 3. Get the token from the config
-cat ~/.config/rclone/rclone.conf
-# Look for the token= line under [gdrive]
-# Copy the full token value (everything after "token = ")
-```
+The script will extract your token automatically.
 
-**Token format looks like:** `{"access_token":"ya29.a0AfH6SMB...","token_type":"Bearer","refresh_token":"1//0gYJ9...","expiry":"2024-..."}`
+## Quick Start
 
-## Quick Start (One-Liner)
+**One-line command (copy and paste):**
 
 ```bash
-git clone https://github.com/your-repo/dbsetup.git && cd dbsetup && chmod +x setup.sh && sudo ./setup.sh -d /opt/postgres -s 4422
+git clone https://github.com/oyenet1/postgres-vps-setup.git && cd postgres-vps-setup && chmod +x setup.sh && sudo ./setup.sh -d /opt/postgres -s 4422
 ```
 
 Or step by step:
 
 ```bash
-git clone https://github.com/your-repo/dbsetup.git
-cd dbsetup
+git clone https://github.com/oyenet1/postgres-vps-setup.git
+cd postgres-vps-setup
 chmod +x setup.sh
 sudo ./setup.sh -d /opt/postgres -s 4422
 ```
 
-When prompted, paste your Google Drive token.
+The script will prompt you step-by-step for any missing values.
+
+### Command Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-d <dir>` | Target installation directory | `/opt/postgres` |
+| `-s <port>` | SSH port for firewall | None (skips SSH rule) |
+
+**Three ways to run:**
+
+```bash
+# 1. WITH custom SSH port - adds firewall rule for that port
+sudo ./setup.sh -d /opt/postgres -s 4422
+
+# 2. WITH default SSH port 22 - adds firewall rule for port 22
+sudo ./setup.sh -d /opt/postgres -s 22
+
+# 3. WITHOUT -s flag - skips SSH firewall rule entirely
+sudo ./setup.sh -d /opt/postgres
+```
+
+> **Note:** If you omit `-s`, you must manually configure SSH access through your cloud provider's firewall/security groups.
+
+### What the Script Does
+
+1. Installs Docker & Docker Compose V2 (if missing)
+2. Configures UFW firewall (SSH on your specified port, PgBouncer on 6543)
+3. Generates SSL certificates
+4. Creates docker-compose.yml and config files
+5. Sets up PostgreSQL + PgBouncer + pgAdmin + Backup containers
+6. Prompts for Google Drive rclone setup (if not configured)
+
+If any environment variables are missing or are placeholders, the script will ask you step-by-step.
 
 ## Services
 

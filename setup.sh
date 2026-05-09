@@ -8,7 +8,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 TARGET_DIR="/opt/postgres"
-SSH_PORT=4422
+SSH_PORT=""
 PGBOUNCER_PORT=6543
 
 prompt_env() {
@@ -42,8 +42,27 @@ prompt_env() {
     fi
 
     if [[ -z "${GOOGLE_DRIVE_TOKEN}" || "${GOOGLE_DRIVE_TOKEN}" == "your_token_here" ]]; then
-        read -p "Google Drive token (from rclone config): " val
-        GOOGLE_DRIVE_TOKEN="${val}"
+        echo -e "${CYAN}[INFO] Google Drive not configured. Setting up rclone...${NC}"
+        if ! command -v rclone &> /dev/null; then
+            echo -e "${CYAN}[INFO] Installing rclone...${NC}"
+            curl -fsSL https://rclone.org/install.sh | sh
+        fi
+        echo -e "${CYAN}[INFO] Configuring Google Drive (headless)...${NC}"
+        echo -e "${CYAN}[INFO] When asked, choose:${NC}"
+        echo -e "${CYAN}  - n (New remote)${NC}"
+        echo -e "${CYAN}  - name: gdrive${NC}"
+        echo -e "${CYAN}  - Storage: drive${NC}"
+        echo -e "${CYAN}  - Google Drive: y${NC}"
+        echo -e "${CYAN}  - scope: y (Full access)${NC}"
+        echo -e "${CYAN}  - ID (leave empty)${NC}"
+        echo -e "${CYAN}  - Secret (leave empty)${NC}"
+        echo -e "${CYAN}  - Aut config: n (headless)${NC}"
+        echo -e "${CYAN}  - Then paste the URL in your browser, authorize, and paste the code back${NC}"
+        echo ""
+        rclone config
+        echo -e "${CYAN}[INFO] Copy the token from ~/.config/rclone/rclone.conf${NC}"
+        echo -e "${CYAN}[INFO] The token is the JSON after 'token = ' in [gdrive] section${NC}"
+        read -p "Paste the full token JSON here: " GOOGLE_DRIVE_TOKEN
     fi
 
     if [[ -n "${GOOGLE_DRIVE_TEAM_DRIVE_ID}" ]]; then
@@ -63,7 +82,12 @@ prompt_env() {
 usage() {
     echo "Usage: $0 -d <target_directory> -s <ssh_port>"
     echo "  -d  Target directory for deployment (default: /opt/postgres)"
-    echo "  -s  SSH port (default: 4422)"
+    echo "  -s  SSH port for firewall (default: none, skip firewall)"
+    echo ""
+    echo "Examples:"
+    echo "  $0 -d /opt/postgres -s 4422   # Custom SSH port"
+    echo "  $0 -d /opt/postgres -s 22      # Default SSH port"
+    echo "  $0 -d /opt/postgres            # Skip SSH firewall rule"
     exit 1
 }
 
@@ -83,7 +107,11 @@ fi
 
 echo -e "${CYAN}[INFO] Starting PostgreSQL + PgBouncer deployment${NC}"
 echo -e "${CYAN}[INFO] Target directory: ${TARGET_DIR}${NC}"
-echo -e "${CYAN}[INFO] SSH port: ${SSH_PORT}${NC}"
+if [[ -n "${SSH_PORT}" ]]; then
+    echo -e "${CYAN}[INFO] SSH port: ${SSH_PORT} (firewall will be configured)${NC}"
+else
+    echo -e "${YELLOW}[INFO] SSH port: not specified (firewall SSH rule will be skipped)${NC}"
+fi
 
 if ! command -v docker &> /dev/null; then
     echo -e "${CYAN}[INFO] Installing Docker...${NC}"
@@ -111,7 +139,12 @@ echo -e "${CYAN}[INFO] Configuring UFW firewall...${NC}"
 if command -v ufw &> /dev/null; then
     ufw --force enable
     ufw default deny incoming
-    ufw allow ${SSH_PORT}/tcp
+    if [[ -n "${SSH_PORT}" ]]; then
+        ufw allow ${SSH_PORT}/tcp
+        echo -e "${CYAN}[INFO] SSH firewall rule added for port ${SSH_PORT}${NC}"
+    else
+        echo -e "${YELLOW}[WARNING] No SSH port specified, skipping SSH firewall rule${NC}"
+    fi
     ufw allow ${PGBOUNCER_PORT}/tcp
     echo -e "${GREEN}[SUCCESS] UFW configured${NC}"
 else
@@ -158,7 +191,7 @@ if [[ ! -f "${TARGET_DIR}/docker-compose.yml" ]]; then
     cat > "${TARGET_DIR}/docker-compose.yml" << 'EOF'
 services:
   postgres:
-    image: postgres:16
+    image: postgres:17
     container_name: postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
@@ -351,9 +384,16 @@ echo -e "${GREEN}  Deployment Complete!${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 echo -e "${CYAN}Services:${NC}"
-echo -e "  - PostgreSQL:  localhost:5432"
+echo -e "  - PostgreSQL:  localhost:5432 (internal only)"
 echo -e "  - PgBouncer:   localhost:${PGBOUNCER_PORT}"
 echo -e "  - pgAdmin:     localhost:5050"
+echo ""
+echo -e "${CYAN}SSH Port:${NC}"
+if [[ -n "${SSH_PORT}" ]]; then
+    echo -e "  - Firewall configured for SSH on port ${SSH_PORT}"
+else
+    echo -e "  - No SSH firewall rule added (use: sudo ufw allow <port>/tcp)"
+fi
 echo ""
 echo -e "${CYAN}Next Steps:${NC}"
 echo -e "  1. Ensure rclone config exists at: ${TARGET_DIR}/config/rclone/rclone.conf"
