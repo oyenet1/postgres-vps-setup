@@ -70,13 +70,77 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       GOOGLE_DRIVE_REMOTE_NAME: ${GOOGLE_DRIVE_REMOTE_NAME}
       GOOGLE_DRIVE_FOLDER: ${GOOGLE_DRIVE_FOLDER}
+      MAX_BACKUPS: ${MAX_BACKUPS:-3}
+      ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      MONITORING_ENABLED: ${MONITORING_ENABLED:-false}
     command: >
-      bash -c "apt-get update && apt-get install -y cron rclone && crontab /backup.cron && cron && tail -f /dev/null"
+      bash -c "apt-get update && apt-get install -y cron rclone msmtp && crontab /backup.cron && cron && tail -f /dev/null"
     networks:
       - dbstack
     depends_on:
       - postgres
     restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alert.rules.yml:/etc/prometheus/alert.rules.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+    networks:
+      - dbstack
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "${GRAFANA_PORT:-3030}:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin123}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    networks:
+      - dbstack
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    profiles:
+      - monitoring
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    networks:
+      - dbstack
+    restart: unless-stopped
+    profiles:
+      - monitoring
 
 networks:
   dbstack:
@@ -84,3 +148,6 @@ networks:
 
 volumes:
   pgadmin_data:
+  prometheus_data:
+  grafana_data:
+  alertmanager_data:

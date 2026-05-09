@@ -1,0 +1,75 @@
+groups:
+  - name: postgres_alerts
+    interval: 30s
+    rules:
+      - alert: PostgresDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL is down"
+          description: "PostgreSQL instance is not responding"
+
+      - alert: PostgresHighConnections
+        expr: pg_stat_activity_count > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL high connection count"
+          description: "PostgreSQL has {{ $value }} active connections"
+
+  - name: pgbouncer_alerts
+    interval: 30s
+    rules:
+      - alert: PgBouncerDown
+        expr: up{job="pgbouncer"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PgBouncer is down"
+          description: "PgBouncer instance is not responding"
+
+      - alert: PgBouncerHighConnections
+        expr: pgbouncer_cl_connections > 800
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PgBouncer high client connections"
+          description: "PgBouncer has {{ $value }} client connections"
+
+  - name: backup_alerts
+    interval: 1h
+    rules:
+      - alert: BackupFailed
+        expr: backup_last_run_status == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backup failed"
+          description: "Database backup has failed"
+
+      - alert: BackupMissing
+        expr: time() - backup_last_success_timestamp > 86400
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Backup missing"
+          description: "No successful backup in the last 24 hours"
+
+  - name: container_alerts
+    interval: 30s
+    rules:
+      - alert: ContainerDown
+        expr: container_last_status == "exited"
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Container is down"
+          description: "{{ $labels.container_name }} has stopped"

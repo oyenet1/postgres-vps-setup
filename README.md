@@ -104,6 +104,87 @@ If any environment variables are missing or are placeholders, the script will as
 | PostgreSQL | 5432 | Database (internal only, not exposed) |
 | PgBouncer | 6543 | Connection pooling (localhost only) |
 | pgAdmin | 5050 | Database administration |
+| Prometheus | 9090 | Metrics collection |
+| Grafana | 3030 | Dashboards and visualization |
+| Alertmanager | 9093 | Alert routing and notification |
+
+## Monitoring Setup (Optional)
+
+During setup, you'll be asked:
+```
+Enable monitoring (Prometheus + Grafana)? [y/N]:
+```
+
+If you choose yes, you'll also configure:
+- Grafana admin password
+- Alert email address (optional)
+- SMTP settings for email alerts (optional)
+
+### Monitoring Environment Variables
+
+```env
+# Enable/Disable Monitoring
+MONITORING_ENABLED=true
+GRAFANA_USER=admin
+GRAFANA_PASSWORD=admin123
+
+# Alert Configuration (optional)
+ALERT_EMAIL_TO=alerts@example.com
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASSWORD=your-app-password
+SMTP_FROM=alerts@example.com
+```
+
+### Accessing Monitoring Services
+
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| Prometheus | http://your-server:9090 | No auth (read-only) |
+| Grafana | http://your-server:3030 | admin / (your set password) |
+| Alertmanager | http://your-server:9093 | No auth (read-only) |
+
+### Gmail SMTP Setup (for alerts)
+
+To send alerts via Gmail, you need an **App Password**:
+
+1. Go to: https://myaccount.google.com/apppasswords
+2. Create a new App Password (select "Mail" and "Other app")
+3. Copy the 16-character password
+4. Use this as your `SMTP_PASSWORD` (not your regular Gmail password)
+
+### Alerts Sent via Email
+
+After each backup, an email report is sent with:
+- Backup status (success/failed)
+- Backup file name and size
+- Upload status to Google Drive
+- All service status (PostgreSQL, PgBouncer)
+- Timestamp and duration
+
+Critical alerts (service down, backup failed) are also sent via SMTP.
+
+### Alert Rules Configured
+
+| Alert | Condition | Severity |
+|-------|-----------|----------|
+| PostgresDown | PostgreSQL not responding | Critical |
+| PostgresHighConnections | >80 connections | Warning |
+| PgBouncerDown | PgBouncer not responding | Critical |
+| PgBouncerHighConnections | >800 client connections | Warning |
+| BackupFailed | Backup job failed | Critical |
+| BackupMissing | No backup in 24 hours | Warning |
+
+### Monitoring Files Location
+
+All monitoring configs are in the `monitoring/` folder:
+```
+monitoring/
+├── prometheus.yml      # Prometheus scrape config
+├── alert.rules.yml     # Alert rules
+└── alertmanager.yml    # Alertmanager SMTP config
+```
 
 ## Example .env File (After Deployment)
 
@@ -129,12 +210,26 @@ PGADMIN_EMAIL=admin@example.com
 PGADMIN_PASSWORD=Xk9#mP2$nL5!qR8%vT4@wY7&jK3*hB6
 
 # Backup Configuration
-BACKUP_SCHEDULE="0 */12 * * *"    # Every 12 hours
+BACKUP_SCHEDULE="0 */12 * * *"
 GOOGLE_DRIVE_REMOTE_NAME=gdrive
 GOOGLE_DRIVE_FOLDER=postgres_backups
-GOOGLE_DRIVE_TOKEN={"access_token":"..."}   (your rclone token)
+GOOGLE_DRIVE_TOKEN={"access_token":"..."}
 GOOGLE_DRIVE_TEAM_DRIVE_ID=
 RCLONE_CONFIG_PATH=/config/rclone/rclone.conf
+MAX_BACKUPS=3
+
+# Monitoring
+MONITORING_ENABLED=true
+GRAFANA_USER=admin
+GRAFANA_PASSWORD=admin123
+
+# Alert Configuration
+ALERT_EMAIL_TO=alerts@example.com
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASSWORD=your-app-password
+SMTP_FROM=alerts@example.com
 ```
 
 ## Configuration
@@ -156,6 +251,22 @@ After editing, restart the backup container:
 ```bash
 docker compose restart backup
 ```
+
+### Changing Backup Retention (Max Backups)
+
+By default, only the last 3 backups are kept on Google Drive (oldest are deleted). To change this:
+
+1. Edit `.env`:
+```
+MAX_BACKUPS=5
+```
+
+2. Restart backup container:
+```bash
+docker compose restart backup
+```
+
+This applies to both Google Drive and local backups (keeping MAX_BACKUPS locally too).
 
 ### Creating New Databases
 
