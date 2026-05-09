@@ -207,6 +207,44 @@ postgresql://pguser:password@localhost:6543/myappdb
 
 **Note:** For dynamic database lookup without editing config, you can use `auth_query` in PgBouncer - this allows any database to be accessed through PgBouncer without pre-configuration.
 
+### Volume Persistence (Data Safety)
+
+All persistent data is stored in Docker volumes - your data survives container restarts and redeployments:
+
+| Volume | Location | What's Stored |
+|--------|----------|---------------|
+| `postgres_data` | `./postgres_data/` | PostgreSQL database files |
+| `pgadmin_data` | Docker named volume | pgAdmin settings and configs |
+| `backups` | `./backups/` | Local backup files (before upload) |
+| `pgbouncer_ssl` | `./pgbouncer_ssl/` | SSL certificates and keys |
+
+**Important:** Never delete `postgres_data/` - it contains your database!
+
+### If Files Change (Watch Out)
+
+When changing config files, be aware:
+
+```bash
+# SSL certificates - if regenerated, clients need new certificates
+# Always backup old certs before regeneration
+
+# .env changes - containers must be recreated to take effect
+docker compose down && docker compose up -d
+
+# pgbouncer.ini - changes require restart
+docker compose restart pgbouncer
+
+# userlist.txt - if passwords change, update here too
+# The hashed password in userlist.txt must match POSTGRES_PASSWORD in .env
+```
+
+**Idempotent redeploy (safe to run multiple times):**
+```bash
+docker compose down && docker compose up -d
+```
+
+This will NOT destroy your data - only containers are recreated, volumes persist.
+
 ### Making Changes and Redeploying
 
 The setup is idempotent - you can make changes and redeploy safely:
