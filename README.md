@@ -2,6 +2,33 @@
 
 Docker-based PostgreSQL with PgBouncer connection pooling, pgAdmin, and automated backups to Google Drive.
 
+---
+
+## Why This Project?
+
+Setting up a production-ready PostgreSQL stack is harder than it should be. You need to:
+
+- **Configure connection pooling** - Without PgBouncer, each client connection opens a new database connection, exhausting resources quickly
+- **Set up automated backups** - Manual backups don't scale and get forgotten
+- **Secure your database** - SSL, firewall rules, non-standard ports - it's easy to miss something
+- **Manage multiple environments** - Development, staging, production all need slightly different configs
+- **Connect to Cloudflare Hyperdrive** - Getting PostgreSQL to work with Cloudflare Workers requires specific configuration
+
+This project solves all of that in one idempotent, repeatable script.
+
+### Problems We Solve
+
+| Problem | Solution |
+|---------|----------|
+| PostgreSQL connection exhaustion | PgBouncer with transaction-mode pooling |
+| No automated backups | Cron-based backup container with rclone to Google Drive |
+| Security vulnerabilities | UFW firewall, SSL/TLS, non-standard ports, no hardcoded secrets |
+| Complex setup | One command deployment with interactive prompts for secrets |
+| Cloudflare Hyperdrive integration | Pre-configured PgBouncer with SSL and transaction pooling |
+| Environment management | .env-based configuration, generated passwords, idempotent scripts |
+
+---
+
 ## Before You Start: Get Google Drive Token
 
 **You need an rclone Google Drive token first.** On your local machine:
@@ -365,3 +392,9 @@ docker compose restart pgbouncer
 - **Enable SSL** by appending `?sslmode=require` to your connection string
 - **Use transaction pooling mode** - Hyperdrive is compatible with PgBouncer's transaction mode
 - Keep your `POSTGRES_PASSWORD` secure and never commit it to version control
+
+---
+
+## About
+
+Created by [Bowofade](https://bowofade.com) | [Twitter](https://twitter.com/Fade_networker) | [Hire or Collaborate](https://bowofade.com)

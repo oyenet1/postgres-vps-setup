@@ -1,0 +1,22 @@
+# Environment files (contain secrets)
+.env
+.env.local
+.env.production
+
+# Generated files
+postgres_data/
+pgbouncer_ssl/*.crt
+pgbouncer_ssl/*.key
+userlist.txt
+pgbouncer.ini
+backups/*.sql.gz
+
+# Docker volumes
+pgadmin_data/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
