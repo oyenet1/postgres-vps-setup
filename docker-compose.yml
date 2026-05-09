@@ -32,7 +32,6 @@ services:
       - "6543:5432"
     volumes:
       - ./pgbouncer_ssl:/etc/pgbouncer/ssl
-      - ./pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
       - ./userlist.txt:/etc/pgbouncer/userlist.txt:ro
     networks:
       - dbstack

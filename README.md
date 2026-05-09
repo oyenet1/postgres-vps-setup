@@ -111,7 +111,7 @@ After running `setup.sh`, your `.env` will look like this:
 
 ```env
 # PostgreSQL Configuration
-POSTGRES_VERSION=16
+POSTGRES_VERSION=17
 POSTGRES_DB=mydb
 POSTGRES_USER=pguser
 POSTGRES_PASSWORD=Xk9#mP2$nL5!qR8%vT4@wY7&jK3*hB6  (random 32-char password)
@@ -120,7 +120,7 @@ POSTGRES_PORT=5432
 # PgBouncer Configuration
 PGBOUNCER_PORT=6543
 PGBOUNCER_POOL_SIZE=20
-PGBOUNCER_MAX_CLIENT_CONN=100
+PGBOUNCER_MAX_CLIENT_CONN=1000
 PGBOUNCER_SERVER_LIFETIME=3600
 PGBOUNCER_SERVER_IDLE_TIMEOUT=600
 
@@ -156,6 +156,84 @@ After editing, restart the backup container:
 ```bash
 docker compose restart backup
 ```
+
+### Creating New Databases
+
+#### Via pgAdmin (GUI)
+1. Go to `http://your-server-ip:5050`
+2. Login with your `PGADMIN_EMAIL` and `PGADMIN_PASSWORD`
+3. Right-click **Databases** → **Create** → **Database...**
+4. Enter database name and click **Save**
+
+#### Via SQL
+1. In pgAdmin, click **Query Tool** or connect via terminal:
+```bash
+docker exec -it postgres psql -U pguser -d postgres -c "CREATE DATABASE newdbname;"
+```
+
+#### Via terminal directly
+```bash
+docker exec -it postgres psql -U pguser -d postgres -c "CREATE DATABASE mynewdb;"
+```
+
+### Adding New Databases to PgBouncer
+
+By default, PgBouncer only knows about the primary database. To add additional databases for connection pooling:
+
+1. Edit `pgbouncer.ini` in your deployment directory:
+```ini
+[databases]
+postgres = host=postgres port=5432 dbname=postgres
+myappdb = host=postgres port=5432 dbname=myappdb
+analytics = host=postgres port=5432 dbname=analytics
+```
+
+2. Update the userlist if using different credentials:
+```ini
+[databases]
+postgres = host=postgres port=5432 dbname=postgres user=pguser
+myappdb = host=postgres port=5432 dbname=myappdb user=appuser
+```
+
+3. Restart PgBouncer:
+```bash
+docker compose restart pgbouncer
+```
+
+4. Connect via PgBouncer on port 6543:
+```
+postgresql://pguser:password@localhost:6543/myappdb
+```
+
+**Note:** For dynamic database lookup without editing config, you can use `auth_query` in PgBouncer - this allows any database to be accessed through PgBouncer without pre-configuration.
+
+### Making Changes and Redeploying
+
+The setup is idempotent - you can make changes and redeploy safely:
+
+```bash
+# 1. Edit configuration files (.env, docker-compose.yml, etc.)
+nano .env
+
+# 2. Stop containers
+docker compose down
+
+# 3. Start containers with new config
+docker compose up -d
+
+# Or restart specific services
+docker compose restart pgbouncer
+docker compose restart postgres
+```
+
+**Common changes:**
+
+| What to Change | File to Edit | Redeploy Command |
+|----------------|--------------|-------------------|
+| Passwords, DB name | `.env` | `docker compose down && docker compose up -d` |
+| Backup schedule | `templates/backup.cron` | `docker compose restart backup` |
+| PgBouncer settings | `pgbouncer.ini` | `docker compose restart pgbouncer` |
+| New environment vars | `.env` then | `docker compose down && docker compose up -d` |
 
 ### Changing PgBouncer Settings
 

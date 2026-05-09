@@ -280,20 +280,11 @@ listen_port = 6543
 auth_type = md5
 auth_file = /etc/pgbouncer/userlist.txt
 pool_mode = transaction
-max_client_conn = 100
+max_client_conn = 1000
 default_pool_size = 20
 server_lifetime = 3600
 server_idle_timeout = 600
 server_reset_query = DISCARD ALL
-
-client_tls_ssl = 1
-client_tls_ciphers = HIGH:!aNULL:!MD5
-client_tls_cert_file = /etc/pgbouncer/ssl/server.crt
-client_tls_key_file = /etc/pgbouncer/ssl/server.key
-server_tls_ssl = 1
-server_tls_ciphers = HIGH:!aNULL:!MD5
-server_tls_cert_file = /etc/pgbouncer/ssl/server.crt
-server_tls_key_file = /etc/pgbouncer/ssl/server.key
 
 log_connections = 1
 log_disconnections = 1
