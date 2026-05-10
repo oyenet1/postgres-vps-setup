@@ -145,28 +145,73 @@ if [[ -z "${PGADMIN_PASSWORD}" || "${PGADMIN_PASSWORD}" == "changeme_random_32_c
 fi
 
 if [[ -z "${GOOGLE_DRIVE_TOKEN}" || "${GOOGLE_DRIVE_TOKEN}" == "your_token_here" ]]; then
-    echo -e "${CYAN}[INFO] Google Drive not configured. Setting up rclone...${NC}"
-    if ! command -v rclone &> /dev/null; then
-        echo -e "${CYAN}[INFO] Installing rclone...${NC}"
-        curl -fsSL https://rclone.org/install.sh | sh
+    GLOBAL_RCLONE="${HOME}/.config/rclone/rclone.conf"
+    if [[ -f "${GLOBAL_RCLONE}" ]] && grep -q "token" "${GLOBAL_RCLONE}" 2>/dev/null; then
+        echo -e "${CYAN}[INFO] Existing rclone config found at ${GLOBAL_RCLONE}${NC}"
+        echo -e "${CYAN}What would you like to do?${NC}"
+        echo -e "  1) Use the existing rclone config"
+        echo -e "  2) Delete and configure a new one"
+        read -p "Choice [1]: " val
+        val="${val:-1}"
+        if [[ "${val}" == "1" ]]; then
+            GOOGLE_DRIVE_TOKEN=$(grep -A5 "\[gdrive\]" "${GLOBAL_RCLONE}" 2>/dev/null | grep "token" | sed 's/token = //' | head -1)
+            if [[ -n "${GOOGLE_DRIVE_TOKEN}" ]]; then
+                sed -i "s|GOOGLE_DRIVE_TOKEN=.*|GOOGLE_DRIVE_TOKEN=${GOOGLE_DRIVE_TOKEN}|" "${TARGET_DIR}/.env"
+                echo -e "${GREEN}[SUCCESS] Using existing rclone token${NC}"
+            else
+                echo -e "${YELLOW}[WARNING] Could not extract token, will reconfigure${NC}"
+                val="2"
+            fi
+        fi
+        if [[ "${val}" == "2" ]]; then
+            rm -f "${GLOBAL_RCLONE}"
+            echo -e "${CYAN}[INFO] Google Drive not configured. Setting up rclone...${NC}"
+            if ! command -v rclone &> /dev/null; then
+                echo -e "${CYAN}[INFO] Installing rclone...${NC}"
+                curl -fsSL https://rclone.org/install.sh | sh
+            fi
+            echo -e "${CYAN}[INFO] Configuring Google Drive (headless)...${NC}"
+            echo -e "${CYAN}[INFO] When asked, choose:${NC}"
+            echo -e "${CYAN}  - n (New remote)${NC}"
+            echo -e "${CYAN}  - name: gdrive${NC}"
+            echo -e "${CYAN}  - Storage: drive${NC}"
+            echo -e "${CYAN}  - Google Drive: y${NC}"
+            echo -e "${CYAN}  - scope: y (Full access)${NC}"
+            echo -e "${CYAN}  - ID (leave empty)${NC}"
+            echo -e "${CYAN}  - Secret (leave empty)${NC}"
+            echo -e "${CYAN}  - Aut config: n (headless)${NC}"
+            echo -e "${CYAN}  - Then paste the URL in your browser, authorize, and paste the code back${NC}"
+            echo ""
+            rclone config
+            echo -e "${CYAN}[INFO] Copy the token from ~/.config/rclone/rclone.conf${NC}"
+            echo -e "${CYAN}[INFO] The token is the JSON after 'token = ' in [gdrive] section${NC}"
+            read -p "Paste the full token JSON here: " GOOGLE_DRIVE_TOKEN
+            sed -i "s|GOOGLE_DRIVE_TOKEN=.*|GOOGLE_DRIVE_TOKEN=${GOOGLE_DRIVE_TOKEN}|" "${TARGET_DIR}/.env"
+        fi
+    else
+        echo -e "${CYAN}[INFO] Google Drive not configured. Setting up rclone...${NC}"
+        if ! command -v rclone &> /dev/null; then
+            echo -e "${CYAN}[INFO] Installing rclone...${NC}"
+            curl -fsSL https://rclone.org/install.sh | sh
+        fi
+        echo -e "${CYAN}[INFO] Configuring Google Drive (headless)...${NC}"
+        echo -e "${CYAN}[INFO] When asked, choose:${NC}"
+        echo -e "${CYAN}  - n (New remote)${NC}"
+        echo -e "${CYAN}  - name: gdrive${NC}"
+        echo -e "${CYAN}  - Storage: drive${NC}"
+        echo -e "${CYAN}  - Google Drive: y${NC}"
+        echo -e "${CYAN}  - scope: y (Full access)${NC}"
+        echo -e "${CYAN}  - ID (leave empty)${NC}"
+        echo -e "${CYAN}  - Secret (leave empty)${NC}"
+        echo -e "${CYAN}  - Aut config: n (headless)${NC}"
+        echo -e "${CYAN}  - Then paste the URL in your browser, authorize, and paste the code back${NC}"
+        echo ""
+        rclone config
+        echo -e "${CYAN}[INFO] Copy the token from ~/.config/rclone/rclone.conf${NC}"
+        echo -e "${CYAN}[INFO] The token is the JSON after 'token = ' in [gdrive] section${NC}"
+        read -p "Paste the full token JSON here: " GOOGLE_DRIVE_TOKEN
+        sed -i "s|GOOGLE_DRIVE_TOKEN=.*|GOOGLE_DRIVE_TOKEN=${GOOGLE_DRIVE_TOKEN}|" "${TARGET_DIR}/.env"
     fi
-    echo -e "${CYAN}[INFO] Configuring Google Drive (headless)...${NC}"
-    echo -e "${CYAN}[INFO] When asked, choose:${NC}"
-    echo -e "${CYAN}  - n (New remote)${NC}"
-    echo -e "${CYAN}  - name: gdrive${NC}"
-    echo -e "${CYAN}  - Storage: drive${NC}"
-    echo -e "${CYAN}  - Google Drive: y${NC}"
-    echo -e "${CYAN}  - scope: y (Full access)${NC}"
-    echo -e "${CYAN}  - ID (leave empty)${NC}"
-    echo -e "${CYAN}  - Secret (leave empty)${NC}"
-    echo -e "${CYAN}  - Aut config: n (headless)${NC}"
-    echo -e "${CYAN}  - Then paste the URL in your browser, authorize, and paste the code back${NC}"
-    echo ""
-    rclone config
-    echo -e "${CYAN}[INFO] Copy the token from ~/.config/rclone/rclone.conf${NC}"
-    echo -e "${CYAN}[INFO] The token is the JSON after 'token = ' in [gdrive] section${NC}"
-    read -p "Paste the full token JSON here: " GOOGLE_DRIVE_TOKEN
-    sed -i "s|GOOGLE_DRIVE_TOKEN=.*|GOOGLE_DRIVE_TOKEN=${GOOGLE_DRIVE_TOKEN}|" "${TARGET_DIR}/.env"
 fi
 
 echo ""
@@ -573,6 +618,15 @@ else
     echo -e "${GREEN}[SUCCESS] Containers started${NC}"
 fi
 
+POSTGRES_STATUS=$(docker exec postgres pg_isready -U "${DB_USER}" 2>/dev/null && echo "UP" || echo "DOWN")
+PGBOUNCER_STATUS=$(docker exec pgbouncer pgbouncer --version 2>/dev/null && echo "UP" || echo "DOWN")
+
+POSTGRES_VERSION=$(docker exec postgres psql -U "${DB_USER}" -d "${POSTGRES_DB}" -t -c "SELECT version();" 2>/dev/null | head -1 | sed 's/PostgreSQL //' | cut -d',' -f1 || echo "unknown")
+DB_SIZE=$(docker exec postgres psql -U "${DB_USER}" -d "${POSTGRES_DB}" -t -c "SELECT pg_size_pretty(pg_database_size('${POSTGRES_DB}'));" 2>/dev/null | xargs || echo "unknown")
+TOTAL_DISK=$(df -h "${TARGET_DIR}" | tail -1 | awk '{print $2}')
+USED_DISK=$(df -h "${TARGET_DIR}" | tail -1 | awk '{print $3}')
+DISK_USAGE=$(df -h "${TARGET_DIR}" | tail -1 | awk '{print $5}')
+
 echo ""
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}  Deployment Complete!${NC}"
@@ -591,6 +645,35 @@ else
 echo -e "${YELLOW}[INFO] Monitoring is disabled (enable with MONITORING_ENABLED=true)${NC}"
 fi
 echo ""
+echo -e "${CYAN}Database Info (via PgBouncer):${NC}"
+echo -e "  - Database:   ${POSTGRES_DB}"
+echo -e "  - DB Size:    ${DB_SIZE}"
+echo -e "  - Version:    ${POSTGRES_VERSION}"
+echo ""
+echo -e "${CYAN}HydroCloud Drive Details:${NC}"
+echo -e "  - Total Disk: ${TOTAL_DISK}"
+echo -e "  - Used:       ${USED_DISK}"
+echo -e "  - Usage:      ${DISK_USAGE}"
+echo ""
+echo -e "${CYAN}PgBouncer Connections:${NC}"
+docker exec pgbouncer psql -U "${POSTGRES_USER}" -h pgbouncer -d pgbouncer -t -c "SHOW DATABASES;" 2>/dev/null | grep -E "^\s*${POSTGRES_DB}" | head -5 || echo "  (connect via PgBouncer to view)"
+echo ""
+
+PGBOUNCER_CONN_STRING="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:6543/${POSTGRES_DB}"
+echo -e "${CYAN}PgBouncer Connection String:${NC}"
+echo -e "  ${PGBOUNCER_CONN_STRING}"
+echo ""
+
+if [[ "${HYPERDRIVE_ENABLED}" == "true" && -n "${HYPERDRIVE_CONNECTION_STRING}" ]]; then
+    echo -e "${CYAN}HyperDrive Connection String:${NC}"
+    echo -e "  ${HYPERDRIVE_CONNECTION_STRING}"
+    echo ""
+fi
+
+echo -e "${CYAN}Docker Containers Running:${NC}"
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null | grep -E "postgres|pgbouncer|pgadmin|prometheus|grafana|alertmanager" || echo "  (no containers found)"
+echo ""
+
 echo -e "${CYAN}Next Steps:${NC}"
 echo -e "  1. Review ${TARGET_DIR}/.env with your settings"
 echo -e "  2. To enable monitoring later: docker compose --profile monitoring up -d"
