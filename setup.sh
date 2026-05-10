@@ -260,10 +260,8 @@ if [[ "${val}" =~ ^[Yy]$ ]]; then
         echo -e "${GREEN}[SUCCESS] Hyperdrive created!${NC}"
         echo -e "${CYAN}Hyperdrive ID: ${HYPERDRIVE_ID}${NC}"
 
-        echo -e "${CYAN}[INFO] Updating PgBouncer to listen on all interfaces...${NC}"
-        sed -i 's/LISTEN_ADDR: "127.0.0.1"/LISTEN_ADDR: "0.0.0.0"/' "${TARGET_DIR}/docker-compose.yml"
-        sed -i 's/"127.0.0.1:6543:5432"/"6543:5432"/' "${TARGET_DIR}/docker-compose.yml"
-        echo -e "${YELLOW}[WARNING] PgBouncer now listens on 0.0.0.0:6543${NC}"
+        echo -e "${CYAN}[INFO] Configuring PgBouncer for Hyperdrive access...${NC}"
+        echo -e "${YELLOW}[WARNING] PgBouncer listens on 0.0.0.0:6543${NC}"
 
         echo -e "${CYAN}[INFO] Opening firewall for Cloudflare IPs (104.16.0.0/12)...${NC}"
         ufw allow from 104.16.0.0/12 to any port 6543 proto tcp 2>/dev/null || true
@@ -582,7 +580,7 @@ echo -e "${GREEN}========================================${NC}"
 echo ""
 echo -e "${CYAN}Services:${NC}"
 echo -e "  - PostgreSQL:  localhost:5432 (internal)"
-echo -e "  - PgBouncer:  localhost:6543"
+echo -e "  - PgBouncer:  0.0.0.0:6543"
 echo -e "  - pgAdmin:    localhost:5050"
 if [[ "${MONITORING_ENABLED}" == "true" ]]; then
 echo -e "  - Prometheus: localhost:9090"

@@ -102,7 +102,7 @@ If any environment variables are missing or are placeholders, the script will as
 | Service | Port | Description |
 |---------|------|-------------|
 | PostgreSQL | 5432 | Database (internal only, not exposed) |
-| PgBouncer | 6543 | Connection pooling (localhost; or 0.0.0.0 if Hyperdrive enabled) |
+| PgBouncer | 6543 | Connection pooling (globally accessible) |
 | pgAdmin | 5050 | Database administration |
 | Prometheus | 9090 | Metrics collection |
 | Grafana | 3030 | Dashboards and visualization |
@@ -440,14 +440,16 @@ find "${BACKUP_DIR}" -name "backup_*.sql.gz" -mtime +7 -delete
 
 ### PgBouncer Security
 
-By default, PgBouncer listens on `127.0.0.1:6543` (localhost only) for security. External access is blocked by UFW firewall.
+PgBouncer listens on `0.0.0.0:6543` (globally accessible). The UFW firewall restricts access so only connections from known sources can reach it.
 
-If you enable Hyperdrive, PgBouncer will be configured to listen on `0.0.0.0:6543` and a firewall rule is added to allow only Cloudflare IPs (`104.16.0.0/12`) to access it.
+For Hyperdrive, a firewall rule is added to allow only Cloudflare IPs (`104.16.0.0/12`) to access PgBouncer.
 
-To manually allow external access (not recommended without additional firewall rules):
+To restrict PgBouncer to localhost-only (not recommended if using Hyperdrive):
 ```yaml
 # In docker-compose.yml, change:
-LISTEN_ADDR: "0.0.0.0"  # Listen on all interfaces
+LISTEN_ADDR: "127.0.0.1"  # Listen on localhost only
+ports:
+  - "127.0.0.1:6543:5432"  # Only accessible via 127.0.0.1
 ```
 
 ## Accessing pgAdmin
@@ -601,6 +603,8 @@ Cloudflare Workers → Hyperdrive → PgBouncer (6543) → PostgreSQL (5432)
                               (transaction mode)
 ```
 
+**PgBouncer is globally accessible** (0.0.0.0:6543) to allow Hyperdrive connections. The UFW firewall ensures only Cloudflare IPs (`104.16.0.0/12`) can reach it when Hyperdrive is enabled.
+
 **Why connect through PgBouncer?**
 - PgBouncer provides transaction-mode connection pooling (more efficient than session-mode)
 - Reduces load on PostgreSQL by reusing connections
@@ -696,11 +700,11 @@ When Hyperdrive is enabled:
 
 ### Disabling Hyperdrive
 
-To disable Hyperdrive and restore localhost-only PgBouncer:
+To disable Hyperdrive and restrict PgBouncer to localhost-only:
 1. Set `HYPERDRIVE_ENABLED=false` in `.env`
 2. Edit `docker-compose.yml`:
-   - Change `LISTEN_ADDR: "0.0.0.0"` back to `LISTEN_ADDR: "127.0.0.1"`
-   - Change `"6543:5432"` back to `"127.0.0.1:6543:5432"`
+   - Change `LISTEN_ADDR: "0.0.0.0"` to `LISTEN_ADDR: "127.0.0.1"`
+   - Change `"6543:5432"` to `"127.0.0.1:6543:5432"`
 3. Remove the Cloudflare firewall rule: `ufw delete allow from 104.16.0.0/12 to any port 6543 proto tcp`
 4. Restart: `docker compose down && docker compose up -d`
 
