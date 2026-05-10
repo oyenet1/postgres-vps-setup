@@ -28,8 +28,9 @@ services:
       CLIENT_TLS_KEY_FILE: /etc/pgbouncer/ssl/server.key
       SERVER_TLS_SSLMODE: prefer
       SERVER_TLS_CA_FILE: /etc/pgbouncer/ssl/server.crt
+      LISTEN_ADDR: "127.0.0.1"
     ports:
-      - "6543:5432"
+      - "127.0.0.1:6543:5432"
     volumes:
       - ./pgbouncer_ssl:/etc/pgbouncer/ssl
       - ./userlist.txt:/etc/pgbouncer/userlist.txt:ro

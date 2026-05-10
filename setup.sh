@@ -211,6 +211,83 @@ else
     sed -i "s/MONITORING_ENABLED=.*/MONITORING_ENABLED=false/" "${TARGET_DIR}/.env"
 fi
 
+echo ""
+echo -e "${CYAN}[INFO] Setup Cloudflare Hyperdrive? [y/N]: ${NC}"
+read -p "> " val
+if [[ "${val}" =~ ^[Yy]$ ]]; then
+    sed -i "s/HYPERDRIVE_ENABLED=.*/HYPERDRIVE_ENABLED=true/" "${TARGET_DIR}/.env"
+
+    if ! command -v node &> /dev/null || [[ "$(node -v 2>/dev/null | cut -d'v' -f2 | cut -d'.' -f1)" -lt 22 ]]; then
+        echo -e "${CYAN}[INFO] Node.js 22 not found. Installing via NodeSource...${NC}"
+        curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+        apt-get install -y nodejs
+        echo -e "${GREEN}[SUCCESS] Node.js $(node -v) installed${NC}"
+    else
+        echo -e "${YELLOW}[WARNING] Node.js $(node -v) is already installed${NC}"
+    fi
+
+    if ! command -v wrangler &> /dev/null; then
+        echo -e "${CYAN}[INFO] Installing Wrangler...${NC}"
+        npm install -g wrangler@latest
+        echo -e "${GREEN}[SUCCESS] Wrangler installed${NC}"
+    else
+        echo -e "${YELLOW}[WARNING] Wrangler is already installed${NC}"
+    fi
+
+    echo -e "${YELLOW}[WARNING] This will open your browser for Cloudflare authentication.${NC}"
+    echo -e "${YELLOW}If no browser opens, manually visit: https://dash.cloudflare.com/${NC}"
+    echo -e "${CYAN}[INFO] Running wrangler login...${NC}"
+    wrangler login
+
+    echo -e "${CYAN}[INFO] Getting public IP...${NC}"
+    PUBLIC_IP=$(curl -s ifconfig.me)
+    if [[ -z "${PUBLIC_IP}" ]]; then
+        echo -e "${RED}[ERROR] Could not determine public IP${NC}"
+        exit 1
+    fi
+    echo -e "${CYAN}[INFO] Public IP: ${PUBLIC_IP}${NC}"
+
+    HYPERDRIVE_NAME="${HYPERDRIVE_NAME:-postgres-hd}"
+    CONNECTION_STRING="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${PUBLIC_IP}:6543/${POSTGRES_DB}?sslmode=require"
+
+    echo -e "${CYAN}[INFO] Creating Hyperdrive binding: ${HYPERDRIVE_NAME}${NC}"
+    HYPERDRIVE_OUTPUT=$(wrangler hyperdrive create "${HYPERDRIVE_NAME}" --connection-string="${CONNECTION_STRING}" 2>&1)
+
+    if echo "${HYPERDRIVE_OUTPUT}" | grep -q '"id"'; then
+        HYPERDRIVE_ID=$(echo "${HYPERDRIVE_OUTPUT}" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+        sed -i "s/HYPERDRIVE_ID=.*/HYPERDRIVE_ID=${HYPERDRIVE_ID}/" "${TARGET_DIR}/.env"
+        sed -i "s|HYPERDRIVE_CONNECTION_STRING=.*|HYPERDRIVE_CONNECTION_STRING=${CONNECTION_STRING}|" "${TARGET_DIR}/.env"
+        echo -e "${GREEN}[SUCCESS] Hyperdrive created!${NC}"
+        echo -e "${CYAN}Hyperdrive ID: ${HYPERDRIVE_ID}${NC}"
+
+        echo -e "${CYAN}[INFO] Updating PgBouncer to listen on all interfaces...${NC}"
+        sed -i 's/LISTEN_ADDR: "127.0.0.1"/LISTEN_ADDR: "0.0.0.0"/' "${TARGET_DIR}/docker-compose.yml"
+        sed -i 's/"127.0.0.1:6543:5432"/"6543:5432"/' "${TARGET_DIR}/docker-compose.yml"
+        echo -e "${YELLOW}[WARNING] PgBouncer now listens on 0.0.0.0:6543${NC}"
+
+        echo -e "${CYAN}[INFO] Opening firewall for Cloudflare IPs (104.16.0.0/12)...${NC}"
+        ufw allow from 104.16.0.0/12 to any port 6543 proto tcp 2>/dev/null || true
+
+        echo ""
+        echo -e "${GREEN}[SUCCESS] Hyperdrive created!${NC}"
+        echo -e "${CYAN}Hyperdrive ID: ${HYPERDRIVE_ID}${NC}"
+        echo ""
+        echo -e "${CYAN}Add this to your wrangler.jsonc:${NC}"
+        echo -e '{
+  "hyperdrive": [{
+    "binding": "HYPERDRIVE",
+    "id": "'"${HYPERDRIVE_ID}"'"
+  }]
+}'
+    else
+        echo -e "${RED}[ERROR] Failed to create Hyperdrive${NC}"
+        echo "${HYPERDRIVE_OUTPUT}"
+        exit 1
+    fi
+else
+    sed -i "s/HYPERDRIVE_ENABLED=.*/HYPERDRIVE_ENABLED=false/" "${TARGET_DIR}/.env"
+fi
+
 source "${TARGET_DIR}/.env"
 
 if [[ ! -f "${TARGET_DIR}/pgbouncer_ssl/server.crt" ]]; then

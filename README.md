@@ -102,7 +102,7 @@ If any environment variables are missing or are placeholders, the script will as
 | Service | Port | Description |
 |---------|------|-------------|
 | PostgreSQL | 5432 | Database (internal only, not exposed) |
-| PgBouncer | 6543 | Connection pooling (localhost only) |
+| PgBouncer | 6543 | Connection pooling (localhost; or 0.0.0.0 if Hyperdrive enabled) |
 | pgAdmin | 5050 | Database administration |
 | Prometheus | 9090 | Metrics collection |
 | Grafana | 3030 | Dashboards and visualization |
@@ -438,13 +438,16 @@ cd "${BACKUP_DIR}" && ls -t backup_*.sql.gz | tail -n +4 | xargs -r rm -f
 find "${BACKUP_DIR}" -name "backup_*.sql.gz" -mtime +7 -delete
 ```
 
-### PgBouncer Security (localhost-only)
+### PgBouncer Security
 
-PgBouncer is configured to listen on `127.0.0.1:6543` only. External access is blocked by the UFW firewall.
+By default, PgBouncer listens on `127.0.0.1:6543` (localhost only) for security. External access is blocked by UFW firewall.
 
-To allow external access (not recommended without additional firewall rules):
-```ini
-listen_addr = 0.0.0.0  # Listen on all interfaces
+If you enable Hyperdrive, PgBouncer will be configured to listen on `0.0.0.0:6543` and a firewall rule is added to allow only Cloudflare IPs (`104.16.0.0/12`) to access it.
+
+To manually allow external access (not recommended without additional firewall rules):
+```yaml
+# In docker-compose.yml, change:
+LISTEN_ADDR: "0.0.0.0"  # Listen on all interfaces
 ```
 
 ## Accessing pgAdmin
@@ -573,48 +576,91 @@ docker compose ps
 docker compose restart pgbouncer
 ```
 
-## Connecting via Cloudflare Hyperdrive
+## Cloudflare Hyperdrive (Optional)
 
-You can connect your Cloudflare Workers to this PostgreSQL database through Hyperdrive.
+Cloudflare Hyperdrive lets your Cloudflare Workers connect to your PostgreSQL database with automatic caching, connection pooling, and reduced latency worldwide. This setup uses PgBouncer as the target (not direct PostgreSQL), which provides additional connection pooling benefits.
 
-### 1. Install Wrangler and Login
+### Benefits of Hyperdrive
+
+| Benefit | Description |
+|---------|-------------|
+| **Global Performance** | Cache queries at Cloudflare's 300+ data centers worldwide |
+| **Connection Pooling** | Hyperdrive manages a pool of connections to your database, reducing connection overhead |
+| **Reduced Latency** | Workers connect to the nearest Cloudflare edge, which then connects to your VPS through Hyperdrive |
+| **SSL/TLS by Default** | All connections are encrypted automatically |
+| **No Cold Starts** | Hyperdrive keeps connections warm |
+| **Cost Savings** | Reduced database compute since connection pooling is handled by both PgBouncer and Hyperdrive |
+| **Security** | Only Cloudflare IPs (104.16.0.0/12) can reach your PgBouncer port |
+
+### Architecture
+
+```
+Cloudflare Workers → Hyperdrive → PgBouncer (6543) → PostgreSQL (5432)
+                                        ↓
+                              Connection Pooling
+                              (transaction mode)
+```
+
+**Why connect through PgBouncer?**
+- PgBouncer provides transaction-mode connection pooling (more efficient than session-mode)
+- Reduces load on PostgreSQL by reusing connections
+- Hyperdrive connects to PgBouncer's port 6543, not directly to PostgreSQL's 5432
+
+### During Setup
+
+When running `setup.sh`, you'll be prompted:
+```
+Setup Cloudflare Hyperdrive? [y/N]:
+```
+
+If you choose yes, the script will:
+1. Auto-install Node.js 22 (if missing)
+2. Install Wrangler CLI
+3. Open browser for Cloudflare authentication (`wrangler login`)
+4. Get your server's public IP automatically
+5. Create Hyperdrive binding connected to PgBouncer
+6. Configure PgBouncer to listen on all interfaces (`0.0.0.0:6543`)
+7. Open firewall for Cloudflare IPs (`104.16.0.0/12`)
+
+### Manual Setup (if not using automated setup)
 
 ```bash
-npm install -g wrangler
+# 1. Install Wrangler
+npm install -g wrangler@latest
+
+# 2. Login to Cloudflare
 wrangler login
+
+# 3. Create Hyperdrive (pointing to PgBouncer port 6543)
+wrangler hyperdrive create postgres-hd \
+  --connection-string="postgres://pguser:your_password@YOUR_PUBLIC_IP:6543/mydb?sslmode=require"
+
+# 4. Copy the Hyperdrive ID from the output
 ```
 
-### 2. Create a Hyperdrive Binding
-
-```bash
-wrangler hyperdrive create my-postgres-db --connection-string="postgres://pguser:your_password@your-server-ip:6543/mydb?sslmode=require"
-```
-
-### 3. Add to wrangler.jsonc
+### Add to wrangler.jsonc
 
 ```jsonc
 {
-  "hyperdrive": {
-    "DB": {
-      "id": "your-hyperdrive-id",
-      "protocol": "postgresql",
-      "connectionString": "postgres://pguser:your_password@your-server-ip:6543/mydb?sslmode=require"
-    }
-  }
+  "hyperdrive": [{
+    "binding": "HYPERDRIVE",
+    "id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  }]
 }
 ```
 
-### 4. Use in Worker Code
+### Use in Worker Code
 
 ```typescript
 export interface Env {
-  DB: Hyperdrive;
+  HYPERDRIVE: Hyperdrive;
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const client = await env.DB.getClient();
+    const client = await env.HYPERDRIVE.getClient();
 
+    // Query through Hyperdrive (connected to PgBouncer)
     const result = await client.queryArray('SELECT NOW()');
     await client.end();
 
@@ -623,33 +669,40 @@ export default {
 };
 ```
 
-### 5. Firewall Requirements
+### Environment Variables Added
 
-PgBouncer is configured to listen on `127.0.0.1` (localhost) for security. For Hyperdrive to work, you need to allow Cloudflare IPs:
-
-```bash
-# Allow Cloudflare IP ranges to reach PgBouncer
-ufw allow from 104.16.0.0/12 to any port 6543
+After Hyperdrive setup, your `.env` will include:
+```env
+HYPERDRIVE_ENABLED=true
+HYPERDRIVE_NAME=postgres-hd
+HYPERDRIVE_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+HYPERDRIVE_CONNECTION_STRING=postgres://user:pass@PUBLIC_IP:6543/db?sslmode=require
 ```
 
-If using Hyperdrive, you may also need to change PgBouncer to listen externally. Edit `pgbouncer.ini`:
+### Firewall Changes for Hyperdrive
 
-```ini
-listen_addr = 0.0.0.0  # Listen on all interfaces for Hyperdrive access
-```
-
-Then restart:
-```bash
-docker compose restart pgbouncer
-```
+When Hyperdrive is enabled:
+- PgBouncer changes from `LISTEN_ADDR: "127.0.0.1"` to `LISTEN_ADDR: "0.0.0.0"`
+- UFW rule added: `ufw allow from 104.16.0.0/12 to any port 6543 proto tcp`
+- Only Cloudflare can reach port 6543 externally
 
 ### Important Notes
 
-- **PgBouncer defaults to localhost-only** for security. Enable external access if using Hyperdrive.
-- **Always use PgBouncer port 6543**, not direct PostgreSQL port 5432
-- **Enable SSL** by appending `?sslmode=require` to your connection string
-- **Use transaction pooling mode** - Hyperdrive is compatible with PgBouncer's transaction mode
-- Keep your `POSTGRES_PASSWORD` secure and never commit it to version control
+- **Always connect to port 6543 (PgBouncer)**, not 5432 (PostgreSQL direct)
+- **SSL is required** - always append `?sslmode=require`
+- **PgBouncer uses transaction pooling** - no prepared statements across transactions
+- **Keep your Hyperdrive ID secret** - it's the key to your database
+- **Node.js 22 required** for Wrangler CLI
+
+### Disabling Hyperdrive
+
+To disable Hyperdrive and restore localhost-only PgBouncer:
+1. Set `HYPERDRIVE_ENABLED=false` in `.env`
+2. Edit `docker-compose.yml`:
+   - Change `LISTEN_ADDR: "0.0.0.0"` back to `LISTEN_ADDR: "127.0.0.1"`
+   - Change `"6543:5432"` back to `"127.0.0.1:6543:5432"`
+3. Remove the Cloudflare firewall rule: `ufw delete allow from 104.16.0.0/12 to any port 6543 proto tcp`
+4. Restart: `docker compose down && docker compose up -d`
 
 ---
 
