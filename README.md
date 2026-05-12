@@ -29,21 +29,32 @@ This project solves all of that in one idempotent, repeatable script.
 
 ---
 
-## Before You Start: Google Drive Setup
+## Before You Start: Cloud Storage Setup (rclone)
 
-The setup script will configure rclone automatically on your VPS. When prompted:
+The setup script will configure rclone automatically on your VPS. **First-time setup only** (when no rclone remote exists), you will be prompted to:
 
 1. **Choose `n`** (New remote)
-2. **Name:** `gdrive`
-3. **Storage:** `drive`
-4. **Google Drive:** `y`
-5. **Scope:** `y` (Full access)
-6. **ID/Secret:** Leave empty
-7. **Auto config:** `n` (headless)
+2. **Name:** `gdrive` (or your preferred name)
+3. **Storage:** Enter a number or name. Popular options:
+   | # | Storage |
+   |---|---------|
+   | 5 | Backblaze B2 |
+   | 10 | Cloudinary |
+   | 15 | Dropbox |
+   | 24 | Google Drive |
+   | 40 | Azure Blob |
+   | 42 | OneDrive (Microsoft) |
+   | 45 | Oracle Drive |
+   | 64 | Yandex |
+   | 66 | iCloud |
+4. **For all other prompts:** Accept defaults by pressing Enter
+5. **Auto config:** `n` (headless)
 
-Then you'll see a URL - open it in your browser, authorize Google Drive, and paste the verification code back into the terminal.
+Then you'll see a URL - open it in your browser, authorize your cloud storage, and paste the verification code back into the terminal.
 
-The script will extract your token automatically.
+**The script will extract your token automatically.**
+
+> **Note:** On subsequent runs, if rclone is already configured with a remote, the script will skip the interactive setup and use the existing token automatically.
 
 ## Quick Start
 

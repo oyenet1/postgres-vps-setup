@@ -146,7 +146,18 @@ fi
 
 if [[ -z "${GOOGLE_DRIVE_TOKEN}" || "${GOOGLE_DRIVE_TOKEN}" == "your_token_here" ]]; then
     GLOBAL_RCLONE="${HOME}/.config/rclone/rclone.conf"
-    if [[ -f "${GLOBAL_RCLONE}" ]] && grep -q "token" "${GLOBAL_RCLONE}" 2>/dev/null; then
+    if command -v rclone &> /dev/null && rclone config show gdrive &>/dev/null; then
+        echo -e "${CYAN}[INFO] Google Drive remote 'gdrive' already configured${NC}"
+        if [[ -f "${GLOBAL_RCLONE}" ]] && grep -q "token" "${GLOBAL_RCLONE}" 2>/dev/null; then
+            GOOGLE_DRIVE_TOKEN=$(grep -A5 "\[gdrive\]" "${GLOBAL_RCLONE}" 2>/dev/null | grep "token" | sed 's/token = //' | head -1)
+            if [[ -n "${GOOGLE_DRIVE_TOKEN}" ]]; then
+                sed -i "s|GOOGLE_DRIVE_TOKEN=.*|GOOGLE_DRIVE_TOKEN=${GOOGLE_DRIVE_TOKEN}|" "${TARGET_DIR}/.env"
+                echo -e "${GREEN}[SUCCESS] Using existing rclone token${NC}"
+            else
+                echo -e "${YELLOW}[WARNING] Could not extract token from config${NC}"
+            fi
+        fi
+    elif [[ -f "${GLOBAL_RCLONE}" ]] && grep -q "token" "${GLOBAL_RCLONE}" 2>/dev/null; then
         echo -e "${CYAN}[INFO] Existing rclone config found at ${GLOBAL_RCLONE}${NC}"
         echo -e "${CYAN}What would you like to do?${NC}"
         echo -e "  1) Use the existing rclone config"
@@ -170,47 +181,73 @@ if [[ -z "${GOOGLE_DRIVE_TOKEN}" || "${GOOGLE_DRIVE_TOKEN}" == "your_token_here"
                 echo -e "${CYAN}[INFO] Installing rclone...${NC}"
                 curl -fsSL https://rclone.org/install.sh | sh
             fi
-            echo -e "${CYAN}[INFO] Configuring Google Drive (headless)...${NC}"
+            echo -e "${CYAN}[INFO] Configuring remote storage (headless)...${NC}"
             echo -e "${CYAN}[INFO] When asked, choose:${NC}"
             echo -e "${CYAN}  - n (New remote)${NC}"
-            echo -e "${CYAN}  - name: gdrive${NC}"
-            echo -e "${CYAN}  - Storage: drive${NC}"
-            echo -e "${CYAN}  - Google Drive: y${NC}"
-            echo -e "${CYAN}  - scope: y (Full access)${NC}"
-            echo -e "${CYAN}  - ID (leave empty)${NC}"
-            echo -e "${CYAN}  - Secret (leave empty)${NC}"
-            echo -e "${CYAN}  - Aut config: n (headless)${NC}"
+            echo -e "${CYAN}  - name: gdrive (or your preferred name)${NC}"
+            echo -e "${CYAN}  - Storage: enter number or name (see below)${NC}"
+            echo -e "${CYAN}    Popular options:${NC}"
+            echo -e "${CYAN}      5  = Backblaze B2${NC}"
+            echo -e "${CYAN}      10 = Cloudinary${NC}"
+            echo -e "${CYAN}      15 = Dropbox${NC}"
+            echo -e "${CYAN}      24 = Google Drive${NC}"
+            echo -e "${CYAN}      40 = Azure Blob${NC}"
+            echo -e "${CYAN}      42 = OneDrive (Microsoft)${NC}"
+            echo -e "${CYAN}      45 = Oracle Drive${NC}"
+            echo -e "${CYAN}      64 = Yandex${NC}"
+            echo -e "${CYAN}      66 = iCloud${NC}"
+            echo -e "${CYAN}  - For other options: accept defaults by pressing Enter${NC}"
+            echo -e "${CYAN}  - Auto config: n (headless)${NC}"
             echo -e "${CYAN}  - Then paste the URL in your browser, authorize, and paste the code back${NC}"
             echo ""
             rclone config
-            echo -e "${CYAN}[INFO] Copy the token from ~/.config/rclone/rclone.conf${NC}"
-            echo -e "${CYAN}[INFO] The token is the JSON after 'token = ' in [gdrive] section${NC}"
-            read -p "Paste the full token JSON here: " GOOGLE_DRIVE_TOKEN
+            echo -e "${CYAN}[INFO] Extracting token from config...${NC}"
+            GOOGLE_DRIVE_TOKEN=$(grep -A5 "\[gdrive\]" "${GLOBAL_RCLONE}" 2>/dev/null | grep "token" | sed 's/token = //' | head -1)
+            if [[ -z "${GOOGLE_DRIVE_TOKEN}" ]]; then
+                echo -e "${YELLOW}[WARNING] Could not auto-extract token${NC}"
+                echo -e "${CYAN}[INFO] Please paste the token manually from ~/.config/rclone/rclone.conf${NC}"
+                echo -e "${CYAN}The token is the JSON after 'token = ' in [gdrive] section${NC}"
+                read -p "Paste token: " GOOGLE_DRIVE_TOKEN
+            fi
             sed -i "s|GOOGLE_DRIVE_TOKEN=.*|GOOGLE_DRIVE_TOKEN=${GOOGLE_DRIVE_TOKEN}|" "${TARGET_DIR}/.env"
+            echo -e "${GREEN}[SUCCESS] Token saved${NC}"
         fi
     else
-        echo -e "${CYAN}[INFO] Google Drive not configured. Setting up rclone...${NC}"
+        echo -e "${CYAN}[INFO] Cloud storage not configured. Setting up rclone...${NC}"
         if ! command -v rclone &> /dev/null; then
             echo -e "${CYAN}[INFO] Installing rclone...${NC}"
             curl -fsSL https://rclone.org/install.sh | sh
         fi
-        echo -e "${CYAN}[INFO] Configuring Google Drive (headless)...${NC}"
+        echo -e "${CYAN}[INFO] Configuring remote storage (headless)...${NC}"
         echo -e "${CYAN}[INFO] When asked, choose:${NC}"
         echo -e "${CYAN}  - n (New remote)${NC}"
-        echo -e "${CYAN}  - name: gdrive${NC}"
-        echo -e "${CYAN}  - Storage: drive${NC}"
-        echo -e "${CYAN}  - Google Drive: y${NC}"
-        echo -e "${CYAN}  - scope: y (Full access)${NC}"
-        echo -e "${CYAN}  - ID (leave empty)${NC}"
-        echo -e "${CYAN}  - Secret (leave empty)${NC}"
-        echo -e "${CYAN}  - Aut config: n (headless)${NC}"
+        echo -e "${CYAN}  - name: gdrive (or your preferred name)${NC}"
+        echo -e "${CYAN}  - Storage: enter number or name (see below)${NC}"
+        echo -e "${CYAN}    Popular options:${NC}"
+        echo -e "${CYAN}      5  = Backblaze B2${NC}"
+        echo -e "${CYAN}      10 = Cloudinary${NC}"
+        echo -e "${CYAN}      15 = Dropbox${NC}"
+        echo -e "${CYAN}      24 = Google Drive${NC}"
+        echo -e "${CYAN}      40 = Azure Blob${NC}"
+        echo -e "${CYAN}      42 = OneDrive (Microsoft)${NC}"
+        echo -e "${CYAN}      45 = Oracle Drive${NC}"
+        echo -e "${CYAN}      64 = Yandex${NC}"
+        echo -e "${CYAN}      66 = iCloud${NC}"
+        echo -e "${CYAN}  - For other options: accept defaults by pressing Enter${NC}"
+        echo -e "${CYAN}  - Auto config: n (headless)${NC}"
         echo -e "${CYAN}  - Then paste the URL in your browser, authorize, and paste the code back${NC}"
         echo ""
         rclone config
-        echo -e "${CYAN}[INFO] Copy the token from ~/.config/rclone/rclone.conf${NC}"
-        echo -e "${CYAN}[INFO] The token is the JSON after 'token = ' in [gdrive] section${NC}"
-        read -p "Paste the full token JSON here: " GOOGLE_DRIVE_TOKEN
+        echo -e "${CYAN}[INFO] Extracting token from config...${NC}"
+        GOOGLE_DRIVE_TOKEN=$(grep -A5 "\[gdrive\]" "${GLOBAL_RCLONE}" 2>/dev/null | grep "token" | sed 's/token = //' | head -1)
+        if [[ -z "${GOOGLE_DRIVE_TOKEN}" ]]; then
+            echo -e "${YELLOW}[WARNING] Could not auto-extract token${NC}"
+            echo -e "${CYAN}[INFO] Please paste the token manually from ~/.config/rclone/rclone.conf${NC}"
+            echo -e "${CYAN}The token is the JSON after 'token = ' in [gdrive] section${NC}"
+            read -p "Paste token: " GOOGLE_DRIVE_TOKEN
+        fi
         sed -i "s|GOOGLE_DRIVE_TOKEN=.*|GOOGLE_DRIVE_TOKEN=${GOOGLE_DRIVE_TOKEN}|" "${TARGET_DIR}/.env"
+        echo -e "${GREEN}[SUCCESS] Token saved${NC}"
     fi
 fi
 
