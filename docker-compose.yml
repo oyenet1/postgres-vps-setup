@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17
+    image: postgis/postgis:17-3.5-alpine
     container_name: postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
@@ -8,6 +8,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - ./postgres_data:/var/lib/postgresql/data
+      - ./ini.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    ports:
+      - "5432:5432"
     networks:
       - dbstack
     restart: unless-stopped
@@ -17,9 +20,10 @@ services:
     container_name: pgbouncer
     environment:
       DATABASE_URL: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+      AUTH_TYPE: plain
       POOL_MODE: transaction
       MAX_CLIENT_CONN: 1000
-      DEFAULT_POOL_SIZE: 20
+      DEFAULT_POOL_SIZE: 100
       SERVER_LIFETIME: 3600
       SERVER_IDLE_TIMEOUT: 600
       SERVER_RESET_QUERY: DISCARD ALL
@@ -32,8 +36,8 @@ services:
     ports:
       - "6543:5432"
     volumes:
-      - ./pgbouncer_ssl:/etc/pgbouncer/ssl
-      - ./userlist.txt:/etc/pgbouncer/userlist.txt:ro
+      - ./userlist.txt:/etc/pgbouncer/userlist.txt
+      - /tmp/pgbouncer_ssl:/etc/pgbouncer/ssl
     networks:
       - dbstack
     depends_on:

@@ -252,6 +252,18 @@ if [[ -z "${GOOGLE_DRIVE_TOKEN}" || "${GOOGLE_DRIVE_TOKEN}" == "your_token_here"
 fi
 
 echo ""
+echo -e "${CYAN}[INFO] Expose PostgreSQL directly on port 5432? (for local psql access)${NC}"
+echo -e "${YELLOW}  Recommended: Y for local dev, N for VPS/production${NC}"
+read -p "Expose PostgreSQL port? [y/N]: " val
+if [[ "${val}" =~ ^[Yy]$ ]]; then
+    sed -i "s/EXPOSE_POSTGRES_DIRECT=.*/EXPOSE_POSTGRES_DIRECT=true/" "${TARGET_DIR}/.env"
+    EXPOSE_POSTGRES_DIRECT=true
+else
+    sed -i "s/EXPOSE_POSTGRES_DIRECT=.*/EXPOSE_POSTGRES_DIRECT=false/" "${TARGET_DIR}/.env"
+    EXPOSE_POSTGRES_DIRECT=false
+fi
+
+echo ""
 echo -e "${CYAN}[INFO] Enable Prometheus + Grafana monitoring? [y/N]: ${NC}"
 read -p "> " val
 if [[ "${val}" =~ ^[Yy]$ ]]; then
