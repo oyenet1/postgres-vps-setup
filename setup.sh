@@ -280,6 +280,21 @@ fi
 
 source "${TARGET_DIR}/.env"
 
+if [[ -n "${GOOGLE_DRIVE_TOKEN}" && "${GOOGLE_DRIVE_TOKEN}" != *"changeme"* ]]; then
+    mkdir -p "${TARGET_DIR}/config/rclone"
+    REMOTE_NAME="${GOOGLE_DRIVE_REMOTE_NAME:-gdrive}"
+    FOLDER="${GOOGLE_DRIVE_FOLDER:-postgres_backups}"
+    cat > "${TARGET_DIR}/config/rclone/rclone.conf" << RCLONEEOF
+[${REMOTE_NAME}]
+type = drive
+token = ${GOOGLE_DRIVE_TOKEN}
+folder = ${FOLDER}
+RCLONEEOF
+    echo -e "${GREEN}[SUCCESS] rclone.conf created${NC}"
+else
+    echo -e "${YELLOW}[WARNING] GOOGLE_DRIVE_TOKEN not set, skipping rclone config${NC}"
+fi
+
 if [[ ! -f "${TARGET_DIR}/pgbouncer_ssl/server.crt" ]]; then
     echo -e "${CYAN}[INFO] Generating SSL certificates...${NC}"
     openssl req -x509 -nodes -days 365 -newkey rsa:2048 \

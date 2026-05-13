@@ -1,79 +1,104 @@
 #!/bin/bash
 set -e
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-CYAN='\033[0;36m'
-YELLOW='\033[0;33m'
-NC='\033[0m'
-
-echo -e "${CYAN}============================================${NC}"
-echo -e "${CYAN}  rclone Google Drive Token Generator${NC}"
-echo -e "${CYAN}============================================${NC}"
+echo "============================================"
+echo "  rclone Google Drive Token Generator"
+echo "============================================"
 echo ""
-echo -e "${YELLOW}This script helps you get a Google Drive token${NC}"
-echo -e "${YELLOW}for use with backup configurations.${NC}"
-echo ""
-echo -e "${CYAN}Prerequisites:${NC}"
-echo -e "  - Run this on your LOCAL computer (with browser)${NC}"
-echo -e "  - Install rclone: curl https://rclone.org/install.sh | sh${NC}"
+echo "Run this on your LOCAL computer (with browser)"
 echo ""
 
-if ! command -v rclone &> /dev/null; then
-    echo -e "${CYAN}[INFO] Installing rclone...${NC}"
-    curl -fsSL https://rclone.org/install.sh | sh
+INSTALL_RCLONE=""
+
+if command -v rclone &> /dev/null; then
+    echo "[OK] rclone is already installed"
+else
+    echo "[INFO] rclone not found, installing..."
+
+    if command -v curl &> /dev/null; then
+        DOWNLOADER="curl -fsSL"
+    elif command -v wget &> /dev/null; then
+        DOWNLOADER="wget -qO-"
+    else
+        echo "[ERROR] Neither curl nor wget found. Please install one of them first."
+        exit 1
+    fi
+
+    if command -v uname &> /dev/null; then
+        OS=$(uname -s)
+        if [[ "$OS" == "Darwin" ]]; then
+            echo "[INFO] Detected macOS - installing rclone via brew..."
+            if command -v brew &> /dev/null; then
+                brew install rclone
+            else
+                echo "[ERROR] Homebrew not found. Install from: https://brew.sh"
+                exit 1
+            fi
+        elif [[ "$OS" == "Linux" ]]; then
+            eval "${DOWNLOADER} https://rclone.org/install.sh | sh"
+        else
+            eval "${DOWNLOADER} https://rclone.org/install.sh | sh"
+        fi
+    else
+        eval "${DOWNLOADER} https://rclone.org/install.sh | sh"
+    fi
 fi
 
-echo -e "${CYAN}[INFO] Starting rclone configuration...${NC}"
-echo -e "${CYAN}Follow the prompts:${NC}"
+if ! command -v rclone &> /dev/null; then
+    echo "[ERROR] rclone installation failed"
+    exit 1
+fi
+
 echo ""
-echo -e "  1. Choose 'n' (New remote)"
-echo -e "  2. Enter name: ${GREEN}gdrive${NC}"
-echo -e "  3. Storage: choose ${GREEN}24 (Google Drive)${NC}"
-echo -e "  4. Client ID/Secret: leave blank (press Enter)"
-echo -e "  5. Scope: choose ${GREEN}1 (Full access)${NC}"
-echo -e "  6. Team Drive: choose 'n'"
-echo -e "  7. Auto config: choose ${GREEN}n (headless)${NC}"
-echo -e "  8. A URL will appear - paste it in your browser${NC}"
-echo -e "  9. Authorize and paste the code back here"
+echo "[INFO] Starting rclone configuration..."
+echo "Follow the prompts:"
+echo ""
+echo "  1. Choose 'n' (New remote)"
+echo "  2. Enter name: gdrive"
+echo "  3. Storage: choose 24 (Google Drive)"
+echo "  4. Client ID/Secret: leave blank (press Enter)"
+echo "  5. Scope: choose 1 (Full access)"
+echo "  6. Team Drive: choose 'n'"
+echo "  7. Auto config: choose n (headless)"
+echo "  8. A URL will appear - paste it in your browser"
+echo "  9. Authorize and paste the code back here"
 echo ""
 rclone config
 
 echo ""
-echo -e "${CYAN}[INFO] Extracting token...${NC}"
+echo "[INFO] Extracting token..."
 
-RCLONE_CONFIG="${HOME}/.config/rclone/rclone.conf"
-if [[ ! -f "${RCLONE_CONFIG}" ]]; then
-    RCLONE_CONFIG="${HOME}/.rclone.conf"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    RCLONE_CONFIG="${HOME}/Library/Application Support/rclone/rclone.conf"
+    [[ ! -f "${RCLONE_CONFIG}" ]] && RCLONE_CONFIG="${HOME}/.config/rclone/rclone.conf"
+else
+    RCLONE_CONFIG="${HOME}/.config/rclone/rclone.conf"
+    [[ ! -f "${RCLONE_CONFIG}" ]] && RCLONE_CONFIG="${HOME}/.rclone.conf"
 fi
 
 TOKEN=$(grep -A5 "\[gdrive\]" "${RCLONE_CONFIG}" 2>/dev/null | grep "token" | sed 's/token = //' | head -1)
 
 if [[ -z "${TOKEN}" ]]; then
-    echo -e "${RED}[ERROR] Could not extract token from config${NC}"
-    echo -e "${CYAN}Please manually copy the token from:${NC}"
-    echo -e "${CYAN}${RCLONE_CONFIG}${NC}"
-    echo -e "${CYAN}Look for 'token = ' in the [gdrive] section${NC}"
+    echo "[ERROR] Could not extract token from config"
+    echo "Please manually copy the token from: ${RCLONE_CONFIG}"
+    echo "Look for 'token = ' in the [gdrive] section"
     exit 1
 fi
 
 echo ""
-echo -e "${GREEN}============================================${NC}"
-echo -e "${GREEN}  COPY THIS TOKEN BELOW${NC}"
-echo -e "${GREEN}============================================${NC}"
+echo "============================================"
+echo "  COPY THIS TOKEN BELOW"
+echo "============================================"
 echo ""
 echo "${TOKEN}"
 echo ""
-echo -e "${CYAN}============================================${NC}"
-echo -e "${CYAN}  USAGE INSTRUCTIONS${NC}"
-echo -e "${CYAN}============================================${NC}"
+echo "============================================"
+echo "  USAGE INSTRUCTIONS"
+echo "============================================"
 echo ""
-echo -e "  1. Copy the token above"
-echo -e "  2. On your VPS, edit the .env file:"
-echo -e "     ${YELLOW}nano /path/to/your/.env${NC}"
-echo -e "  3. Update this line with your token:"
-echo -e "     ${YELLOW}GOOGLE_DRIVE_TOKEN=${NC}"
-echo ""
-echo -e "${CYAN}Alternatively, run this command on your VPS:${NC}"
-echo -e "  ${YELLOW}sed -i 's/GOOGLE_DRIVE_TOKEN=.*/GOOGLE_DRIVE_TOKEN=${TOKEN}/' .env${NC}"
+echo "  1. Copy the token above"
+echo "  2. On your VPS, edit the .env file:"
+echo "     nano /path/to/your/.env"
+echo "  3. Update this line with your token:"
+echo "     GOOGLE_DRIVE_TOKEN=<paste_token_here>"
 echo ""

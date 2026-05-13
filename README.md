@@ -503,24 +503,14 @@ GRANT ALL PRIVILEGES ON DATABASE mynewdb TO newuser;
 To enable Google Drive backups, run this script on your **local computer** (with browser access):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/user/repo/main/rclone-token.sh | bash
+# Works on Linux, Mac, Git Bash (Windows)
+curl -fsSL https://raw.githubusercontent.com/oyenet1/postgres-vps-setup/main/rclone-token.sh | bash
+
+# Alternative if curl not available
+wget -qO- https://raw.githubusercontent.com/oyenet1/postgres-vps-setup/main/rclone-token.sh | bash
 ```
 
-Or copy and run manually:
-
-```bash
-#!/bin/bash
-set -e
-RCLONE_CONFIG="${HOME}/.config/rclone/rclone.conf"
-[[ ! -f "${RCLONE_CONFIG}" ]] && RCLONE_CONFIG="${HOME}/.rclone.conf"
-echo "Prerequisites: Install rclone - curl https://rclone.org/install.sh | sh"
-echo "Follow rclone config prompts: n→name:gdrive→24→Enter→1→n→n"
-rclone config
-TOKEN=$(grep -A5 "\[gdrive\]" "${RCLONE_CONFIG}" 2>/dev/null | grep "token" | sed 's/token = //' | head -1)
-echo "TOKEN=${TOKEN}"
-```
-
-After getting the token, add it to your VPS's `.env` file:
+Or copy and run this script manually:
 
 ```bash
 #!/bin/bash
@@ -530,19 +520,51 @@ echo "============================================"
 echo "  rclone Google Drive Token Generator"
 echo "============================================"
 echo ""
-echo "This script helps you get a Google Drive token"
-echo "for use with backup configurations."
-echo ""
-echo "Prerequisites:"
-echo "  - Run this on your LOCAL computer (with browser)"
-echo "  - Install rclone: curl https://rclone.org/install.sh | sh"
+echo "Run this on your LOCAL computer (with browser)"
 echo ""
 
-if ! command -v rclone &> /dev/null; then
-    echo "[INFO] Installing rclone..."
-    curl -fsSL https://rclone.org/install.sh | sh
+INSTALL_RCLONE=""
+
+if command -v rclone &> /dev/null; then
+    echo "[OK] rclone is already installed"
+else
+    echo "[INFO] rclone not found, installing..."
+
+    if command -v curl &> /dev/null; then
+        DOWNLOADER="curl -fsSL"
+    elif command -v wget &> /dev/null; then
+        DOWNLOADER="wget -qO-"
+    else
+        echo "[ERROR] Neither curl nor wget found. Please install one of them first."
+        exit 1
+    fi
+
+    if command -v uname &> /dev/null; then
+        OS=$(uname -s)
+        if [[ "$OS" == "Darwin" ]]; then
+            echo "[INFO] Detected macOS - installing rclone via brew..."
+            if command -v brew &> /dev/null; then
+                brew install rclone
+            else
+                echo "[ERROR] Homebrew not found. Install from: https://brew.sh"
+                exit 1
+            fi
+        elif [[ "$OS" == "Linux" ]]; then
+            eval "${DOWNLOADER} https://rclone.org/install.sh | sh"
+        else
+            eval "${DOWNLOADER} https://rclone.org/install.sh | sh"
+        fi
+    else
+        eval "${DOWNLOADER} https://rclone.org/install.sh | sh"
+    fi
 fi
 
+if ! command -v rclone &> /dev/null; then
+    echo "[ERROR] rclone installation failed"
+    exit 1
+fi
+
+echo ""
 echo "[INFO] Starting rclone configuration..."
 echo "Follow the prompts:"
 echo ""
@@ -561,9 +583,12 @@ rclone config
 echo ""
 echo "[INFO] Extracting token..."
 
-RCLONE_CONFIG="${HOME}/.config/rclone/rclone.conf"
-if [[ ! -f "${RCLONE_CONFIG}" ]]; then
-    RCLONE_CONFIG="${HOME}/.rclone.conf"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    RCLONE_CONFIG="${HOME}/Library/Application Support/rclone/rclone.conf"
+    [[ ! -f "${RCLONE_CONFIG}" ]] && RCLONE_CONFIG="${HOME}/.config/rclone/rclone.conf"
+else
+    RCLONE_CONFIG="${HOME}/.config/rclone/rclone.conf"
+    [[ ! -f "${RCLONE_CONFIG}" ]] && RCLONE_CONFIG="${HOME}/.rclone.conf"
 fi
 
 TOKEN=$(grep -A5 "\[gdrive\]" "${RCLONE_CONFIG}" 2>/dev/null | grep "token" | sed 's/token = //' | head -1)
@@ -615,9 +640,10 @@ GOOGLE_DRIVE_TOKEN=<paste_your_token_here>
 ```
 dbsetup/
 ├── setup.sh              # Main PostgreSQL + PgBouncer setup
+├── rclone-token.sh       # Generate Google Drive token (run locally)
 ├── docker-compose.yml
 ├── .env.example
-├── README.md             # (contains rclone-token.sh inline)
+├── README.md
 ├── templates/
 │   ├── pgbouncer.ini
 │   └── backup.sh
