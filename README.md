@@ -61,7 +61,7 @@ Then you'll see a URL - open it in your browser, authorize your cloud storage, a
 **One-line command (copy and paste):**
 
 ```bash
-git clone https://github.com/oyenet1/postgres-vps-setup.git && cd postgres-vps-setup && chmod +x setup.sh && sudo ./setup.sh -d /opt/postgres -s 4422
+git clone https://github.com/oyenet1/postgres-vps-setup.git && cd postgres-vps-setup && chmod +x setup.sh && sudo ./setup.sh
 ```
 
 Or step by step:
@@ -70,7 +70,15 @@ Or step by step:
 git clone https://github.com/oyenet1/postgres-vps-setup.git
 cd postgres-vps-setup
 chmod +x setup.sh
-sudo ./setup.sh -d /opt/postgres -s 4422
+sudo ./setup.sh
+```
+
+**Clone a specific branch:**
+```bash
+git clone -b <branch-name> https://github.com/oyenet1/postgres-vps-setup.git
+cd postgres-vps-setup
+chmod +x setup.sh
+sudo ./setup.sh
 ```
 
 The script will prompt you step-by-step for any missing values.
@@ -79,7 +87,7 @@ The script will prompt you step-by-step for any missing values.
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `-d <dir>` | Target installation directory | `/opt/postgres` |
+| `-d <dir>` | Target installation directory | Current script directory |
 | `-s <port>` | SSH port for firewall | None (skips SSH rule) |
 
 **Three ways to run:**
