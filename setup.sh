@@ -11,14 +11,14 @@ TARGET_DIR=$(dirname "$(readlink -f "$0")")
 SSH_PORT=""
 
 usage() {
-    echo "Usage: $0 -d <target_directory> -s <ssh_port>"
-    echo "  -d  Target directory for deployment (default: /opt/postgres)"
+    echo "Usage: $0 [-d <target_directory>] [-s <ssh_port>]"
+    echo "  -d  Target directory for deployment (default: current script directory)"
     echo "  -s  SSH port for firewall (default: none, skip firewall)"
     echo ""
     echo "Examples:"
-    echo "  $0 -d /opt/postgres -s 4422   # Custom SSH port"
-    echo "  $0 -d /opt/postgres -s 22      # Default SSH port"
-    echo "  $0 -d /opt/postgres            # Skip SSH firewall rule"
+    echo "  $0                   # Run in current directory"
+    echo "  $0 -s 4422           # Run with custom SSH port"
+    echo "  $0 -d /opt/postgres  # Run in custom directory"
     exit 1
 }
 

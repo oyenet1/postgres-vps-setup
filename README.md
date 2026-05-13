@@ -93,14 +93,17 @@ The script will prompt you step-by-step for any missing values.
 **Three ways to run:**
 
 ```bash
-# 1. WITH custom SSH port - adds firewall rule for that port
+# 1. Default: runs in current script directory
+sudo ./setup.sh
+
+# 2. WITH custom SSH port - adds firewall rule for that port
+sudo ./setup.sh -s 4422
+
+# 3. WITH default SSH port 22 - adds firewall rule for port 22
+sudo ./setup.sh -s 22
+
+# 4. WITH custom directory
 sudo ./setup.sh -d /opt/postgres -s 4422
-
-# 2. WITH default SSH port 22 - adds firewall rule for port 22
-sudo ./setup.sh -d /opt/postgres -s 22
-
-# 3. WITHOUT -s flag - skips SSH firewall rule entirely
-sudo ./setup.sh -d /opt/postgres
 ```
 
 > **Note:** If you omit `-s`, you must manually configure SSH access through your cloud provider's firewall/security groups.
