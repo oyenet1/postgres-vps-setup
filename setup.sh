@@ -7,7 +7,7 @@ YELLOW='\033[0;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-TARGET_DIR="/opt/postgres"
+TARGET_DIR=$(dirname "$(readlink -f "$0")")
 SSH_PORT=""
 
 usage() {
@@ -88,7 +88,7 @@ fi
 mkdir -p "${TARGET_DIR}"
 cd "${TARGET_DIR}"
 
-mkdir -p postgres_data pgbouncer_ssl backups templates config/rclone monitoring grafana/provisioning/datasources grafana/provisioning/dashboards
+mkdir -p postgres_data pgbouncer_ssl backups templates config/rclone monitoring grafana/provisioning/datasources grafana/provisioning/dashboards postgres_config
 
 if [[ -f "${TARGET_DIR}/.env" ]]; then
     echo -e "${CYAN}[INFO] .env exists, loading existing values...${NC}"
@@ -395,10 +395,54 @@ else
     echo -e "${YELLOW}[WARNING] SSL certificates already exist${NC}"
 fi
 
-HASHED_PASSWORD=$(echo -n "${POSTGRES_PASSWORD}" | md5sum | cut -d' ' -f1)
+HASHED_PASSWORD=$(echo -n "${POSTGRES_PASSWORD}${POSTGRES_USER}" | md5sum | cut -d' ' -f1)
 cat > "${TARGET_DIR}/userlist.txt" << EOF
 "${POSTGRES_USER}" "${HASHED_PASSWORD}"
 EOF
+
+if [[ ! -f "${TARGET_DIR}/postgres_config/pg_hba.conf" ]]; then
+    echo -e "${CYAN}[INFO] Creating PostgreSQL config files...${NC}"
+    cat > "${TARGET_DIR}/postgres_config/pg_hba.conf" << 'PGHBAEOF'
+# PostgreSQL Client Authentication Configuration File
+local   all             all                                     trust
+host    all             all             127.0.0.1/32            trust
+host    all             all             ::1/128                 trust
+local   replication     all                                     trust
+host    replication     all             127.0.0.1/32            trust
+host    replication     all             ::1/128                 trust
+host    all             all             172.16.0.0/12           trust
+host    all             all             0.0.0.0/0              reject
+host    all             all             ::/0                    reject
+PGHBAEOF
+
+    cat > "${TARGET_DIR}/postgres_config/postgresql.conf" << 'PGCONFEOF'
+listen_addresses = '*'
+port = 5432
+max_connections = 200
+shared_buffers = 128MB
+work_mem = 4MB
+wal_level = replica
+max_wal_size = 1GB
+min_wal_size = 80MB
+effective_cache_size = 256MB
+random_page_cost = 1.1
+default_statistics_target = 100
+log_destination = 'stderr'
+logging_collector = off
+log_connections = on
+log_disconnections = on
+datestyle = 'iso, mdy'
+timezone = 'UTC'
+lc_messages = 'en_US.utf8'
+lc_monetary = 'en_US.utf8'
+lc_numeric = 'en_US.utf8'
+lc_time = 'en_US.utf8'
+default_text_search_config = 'pg_catalog.english'
+PGCONFEOF
+    echo -e "${GREEN}[SUCCESS] PostgreSQL config created${NC}"
+else
+    echo -e "${YELLOW}[WARNING] PostgreSQL config already exists, skipping${NC}"
+fi
 
 if [[ ! -f "${TARGET_DIR}/config/rclone/rclone.conf" ]]; then
     echo -e "${CYAN}[INFO] Creating rclone.conf from template...${NC}"
