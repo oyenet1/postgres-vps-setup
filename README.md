@@ -1,6 +1,6 @@
 # PostgreSQL + PgBouncer Stack Deployment
 
-Docker-based PostgreSQL with PgBouncer connection pooling, pgAdmin, and automated backups to Google Drive.
+Docker-based PostgreSQL with PgBouncer connection pooling, pgAdmin, and optional automated backups to Google Drive.
 
 ---
 
@@ -21,40 +21,13 @@ This project solves all of that in one idempotent, repeatable script.
 | Problem | Solution |
 |---------|----------|
 | PostgreSQL connection exhaustion | PgBouncer with transaction-mode pooling |
-| No automated backups | Cron-based backup container with rclone to Google Drive |
+| No automated backups | Local backups with optional Google Drive upload |
 | Security vulnerabilities | UFW firewall, SSL/TLS, non-standard ports, no hardcoded secrets |
 | Complex setup | One command deployment with interactive prompts for secrets |
 | Cloudflare Hyperdrive integration | Pre-configured PgBouncer with SSL and transaction pooling |
 | Environment management | .env-based configuration, generated passwords, idempotent scripts |
 
 ---
-
-## Before You Start: Cloud Storage Setup (rclone)
-
-The setup script will configure rclone automatically on your VPS. **First-time setup only** (when no rclone remote exists), you will be prompted to:
-
-1. **Choose `n`** (New remote)
-2. **Name:** `gdrive` (or your preferred name)
-3. **Storage:** Enter a number or name. Popular options:
-   | # | Storage |
-   |---|---------|
-   | 5 | Backblaze B2 |
-   | 10 | Cloudinary |
-   | 15 | Dropbox |
-   | 24 | Google Drive |
-   | 40 | Azure Blob |
-   | 42 | OneDrive (Microsoft) |
-   | 45 | Oracle Drive |
-   | 64 | Yandex |
-   | 66 | iCloud |
-4. **For all other prompts:** Accept defaults by pressing Enter
-5. **Auto config:** `n` (headless)
-
-Then you'll see a URL - open it in your browser, authorize your cloud storage, and paste the verification code back into the terminal.
-
-**The script will extract your token automatically.**
-
-> **Note:** On subsequent runs, if rclone is already configured with a remote, the script will skip the interactive setup and use the existing token automatically.
 
 ## Quick Start
 
@@ -114,8 +87,7 @@ sudo ./setup.sh -d /opt/postgres -s 4422
 2. Configures UFW firewall (SSH on your specified port, PgBouncer on 6543)
 3. Generates SSL certificates
 4. Creates docker-compose.yml and config files
-5. Sets up PostgreSQL + PgBouncer + pgAdmin + Backup containers
-6. Prompts for Google Drive rclone setup (if not configured)
+5. Sets up PostgreSQL + PgBouncer + pgAdmin containers
 
 If any environment variables are missing or are placeholders, the script will ask you step-by-step.
 
@@ -526,40 +498,107 @@ CREATE USER newuser WITH PASSWORD 'your_password';
 GRANT ALL PRIVILEGES ON DATABASE mynewdb TO newuser;
 ```
 
-## Google Drive Token Setup (rclone OAuth)
+## Google Drive Backup Setup (Optional)
 
-### Method 1: Interactive OAuth (Recommended for testing)
+To enable Google Drive backups, run this script on your **local computer** (with browser access):
 
 ```bash
-curl https://rclone.org/install.sh | sudo bash
-rclone config
+curl -fsSL https://raw.githubusercontent.com/user/repo/main/rclone-token.sh | bash
 ```
 
-### Method 2: Service Account (Recommended for production)
+Or copy and run manually:
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select existing
-3. Enable Google Drive API
-4. Create Service Account:
-   - IAM & Admin > Service Accounts > Create
-   - Name it (e.g., `backup-uploader`)
-   - Grant "Project Owner" or "Drive File" access
-5. Generate JSON key:
-   - Click service account > Keys > Add Key > JSON
-   - Download the JSON file
-6. Configure rclone:
-   ```bash
-   rclone config
-   # n > name: gdrive > drive > y
-   # service_account_credentials: /path/to/json
-   ```
+```bash
+#!/bin/bash
+set -e
+RCLONE_CONFIG="${HOME}/.config/rclone/rclone.conf"
+[[ ! -f "${RCLONE_CONFIG}" ]] && RCLONE_CONFIG="${HOME}/.rclone.conf"
+echo "Prerequisites: Install rclone - curl https://rclone.org/install.sh | sh"
+echo "Follow rclone config prompts: n→name:gdrive→24→Enter→1→n→n"
+rclone config
+TOKEN=$(grep -A5 "\[gdrive\]" "${RCLONE_CONFIG}" 2>/dev/null | grep "token" | sed 's/token = //' | head -1)
+echo "TOKEN=${TOKEN}"
+```
 
-### Method 3: Token-Based (Headless Server)
+After getting the token, add it to your VPS's `.env` file:
 
-1. On local machine, run: `rclone config` to get OAuth URL
-2. Visit URL, authorize, get code
-3. Paste code back
-4. Copy `~/.config/rclone/rclone.conf` to server at `./config/rclone/rclone.conf`
+```bash
+#!/bin/bash
+set -e
+
+echo "============================================"
+echo "  rclone Google Drive Token Generator"
+echo "============================================"
+echo ""
+echo "This script helps you get a Google Drive token"
+echo "for use with backup configurations."
+echo ""
+echo "Prerequisites:"
+echo "  - Run this on your LOCAL computer (with browser)"
+echo "  - Install rclone: curl https://rclone.org/install.sh | sh"
+echo ""
+
+if ! command -v rclone &> /dev/null; then
+    echo "[INFO] Installing rclone..."
+    curl -fsSL https://rclone.org/install.sh | sh
+fi
+
+echo "[INFO] Starting rclone configuration..."
+echo "Follow the prompts:"
+echo ""
+echo "  1. Choose 'n' (New remote)"
+echo "  2. Enter name: gdrive"
+echo "  3. Storage: choose 24 (Google Drive)"
+echo "  4. Client ID/Secret: leave blank (press Enter)"
+echo "  5. Scope: choose 1 (Full access)"
+echo "  6. Team Drive: choose 'n'"
+echo "  7. Auto config: choose n (headless)"
+echo "  8. A URL will appear - paste it in your browser"
+echo "  9. Authorize and paste the code back here"
+echo ""
+rclone config
+
+echo ""
+echo "[INFO] Extracting token..."
+
+RCLONE_CONFIG="${HOME}/.config/rclone/rclone.conf"
+if [[ ! -f "${RCLONE_CONFIG}" ]]; then
+    RCLONE_CONFIG="${HOME}/.rclone.conf"
+fi
+
+TOKEN=$(grep -A5 "\[gdrive\]" "${RCLONE_CONFIG}" 2>/dev/null | grep "token" | sed 's/token = //' | head -1)
+
+if [[ -z "${TOKEN}" ]]; then
+    echo "[ERROR] Could not extract token from config"
+    echo "Please manually copy the token from: ${RCLONE_CONFIG}"
+    echo "Look for 'token = ' in the [gdrive] section"
+    exit 1
+fi
+
+echo ""
+echo "============================================"
+echo "  COPY THIS TOKEN BELOW"
+echo "============================================"
+echo ""
+echo "${TOKEN}"
+echo ""
+echo "============================================"
+echo "  USAGE INSTRUCTIONS"
+echo "============================================"
+echo ""
+echo "  1. Copy the token above"
+echo "  2. On your VPS, edit the .env file:"
+echo "     nano /path/to/your/.env"
+echo "  3. Update this line with your token:"
+echo "     GOOGLE_DRIVE_TOKEN=<paste_token_here>"
+echo ""
+```
+
+After running the script, copy the output token and add it to your VPS's `.env` file:
+
+```bash
+GOOGLE_DRIVE_TOKEN=<paste_your_token_here>
+```
 
 ## Security Checklist
 
@@ -575,17 +614,15 @@ rclone config
 
 ```
 dbsetup/
-├── setup.sh
+├── setup.sh              # Main PostgreSQL + PgBouncer setup
 ├── docker-compose.yml
 ├── .env.example
-├── README.md
+├── README.md             # (contains rclone-token.sh inline)
 ├── templates/
 │   ├── pgbouncer.ini
-│   ├── backup.sh
-│   └── backup.cron
+│   └── backup.sh
 ├── config/
-│   └── rclone/
-│       └── rclone.conf    (generated from .env)
+│   └── rclone/           # (optional) rclone config for cloud backup
 └── ssl/                   (generated)
     ├── server.crt
     └── server.key

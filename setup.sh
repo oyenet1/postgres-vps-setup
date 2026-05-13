@@ -9,6 +9,8 @@ NC='\033[0m'
 
 TARGET_DIR=$(dirname "$(readlink -f "$0")")
 SSH_PORT=""
+DETECTED_SSH_PORT=$(grep -E "^Port" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | head -1)
+DETECTED_SSH_PORT="${DETECTED_SSH_PORT:-22}"
 
 usage() {
     echo "Usage: $0 [-d <target_directory>] [-s <ssh_port>]"
@@ -40,8 +42,11 @@ echo -e "${CYAN}[INFO] Starting PostgreSQL + PgBouncer deployment${NC}"
 echo -e "${CYAN}[INFO] Target directory: ${TARGET_DIR}${NC}"
 if [[ -n "${SSH_PORT}" ]]; then
     echo -e "${CYAN}[INFO] SSH port: ${SSH_PORT} (firewall will be configured)${NC}"
+elif [[ -n "${DETECTED_SSH_PORT}" ]]; then
+    SSH_PORT="${DETECTED_SSH_PORT}"
+    echo -e "${CYAN}[INFO] SSH port: ${SSH_PORT} (auto-detected from sshd_config)${NC}"
 else
-    echo -e "${YELLOW}[INFO] SSH port: not specified (firewall SSH rule will be skipped)${NC}"
+    echo -e "${YELLOW}[INFO] SSH port: not detected (firewall SSH rule will be skipped)${NC}"
 fi
 
 if ! command -v docker &> /dev/null; then
@@ -142,113 +147,6 @@ if [[ -z "${PGADMIN_PASSWORD}" || "${PGADMIN_PASSWORD}" == "changeme_random_32_c
     echo
     PGADMIN_PASSWORD="${val}"
     sed -i "s/PGADMIN_PASSWORD=.*/PGADMIN_PASSWORD=${PGADMIN_PASSWORD}/" "${TARGET_DIR}/.env"
-fi
-
-if [[ -z "${GOOGLE_DRIVE_TOKEN}" || "${GOOGLE_DRIVE_TOKEN}" == "your_token_here" ]]; then
-    GLOBAL_RCLONE="${HOME}/.config/rclone/rclone.conf"
-    if command -v rclone &> /dev/null && rclone config show gdrive &>/dev/null; then
-        echo -e "${CYAN}[INFO] Google Drive remote 'gdrive' already configured${NC}"
-        if [[ -f "${GLOBAL_RCLONE}" ]] && grep -q "token" "${GLOBAL_RCLONE}" 2>/dev/null; then
-            GOOGLE_DRIVE_TOKEN=$(grep -A5 "\[gdrive\]" "${GLOBAL_RCLONE}" 2>/dev/null | grep "token" | sed 's/token = //' | head -1)
-            if [[ -n "${GOOGLE_DRIVE_TOKEN}" ]]; then
-                sed -i "s|GOOGLE_DRIVE_TOKEN=.*|GOOGLE_DRIVE_TOKEN=${GOOGLE_DRIVE_TOKEN}|" "${TARGET_DIR}/.env"
-                echo -e "${GREEN}[SUCCESS] Using existing rclone token${NC}"
-            else
-                echo -e "${YELLOW}[WARNING] Could not extract token from config${NC}"
-            fi
-        fi
-    elif [[ -f "${GLOBAL_RCLONE}" ]] && grep -q "token" "${GLOBAL_RCLONE}" 2>/dev/null; then
-        echo -e "${CYAN}[INFO] Existing rclone config found at ${GLOBAL_RCLONE}${NC}"
-        echo -e "${CYAN}What would you like to do?${NC}"
-        echo -e "  1) Use the existing rclone config"
-        echo -e "  2) Delete and configure a new one"
-        read -p "Choice [1]: " val
-        val="${val:-1}"
-        if [[ "${val}" == "1" ]]; then
-            GOOGLE_DRIVE_TOKEN=$(grep -A5 "\[gdrive\]" "${GLOBAL_RCLONE}" 2>/dev/null | grep "token" | sed 's/token = //' | head -1)
-            if [[ -n "${GOOGLE_DRIVE_TOKEN}" ]]; then
-                sed -i "s|GOOGLE_DRIVE_TOKEN=.*|GOOGLE_DRIVE_TOKEN=${GOOGLE_DRIVE_TOKEN}|" "${TARGET_DIR}/.env"
-                echo -e "${GREEN}[SUCCESS] Using existing rclone token${NC}"
-            else
-                echo -e "${YELLOW}[WARNING] Could not extract token, will reconfigure${NC}"
-                val="2"
-            fi
-        fi
-        if [[ "${val}" == "2" ]]; then
-            rm -f "${GLOBAL_RCLONE}"
-            echo -e "${CYAN}[INFO] Google Drive not configured. Setting up rclone...${NC}"
-            if ! command -v rclone &> /dev/null; then
-                echo -e "${CYAN}[INFO] Installing rclone...${NC}"
-                curl -fsSL https://rclone.org/install.sh | sh
-            fi
-            echo -e "${CYAN}[INFO] Configuring remote storage (headless)...${NC}"
-            echo -e "${CYAN}[INFO] When asked, choose:${NC}"
-            echo -e "${CYAN}  - n (New remote)${NC}"
-            echo -e "${CYAN}  - name: gdrive (or your preferred name)${NC}"
-            echo -e "${CYAN}  - Storage: enter number or name (see below)${NC}"
-            echo -e "${CYAN}    Popular options:${NC}"
-            echo -e "${CYAN}      5  = Backblaze B2${NC}"
-            echo -e "${CYAN}      10 = Cloudinary${NC}"
-            echo -e "${CYAN}      15 = Dropbox${NC}"
-            echo -e "${CYAN}      24 = Google Drive${NC}"
-            echo -e "${CYAN}      40 = Azure Blob${NC}"
-            echo -e "${CYAN}      42 = OneDrive (Microsoft)${NC}"
-            echo -e "${CYAN}      45 = Oracle Drive${NC}"
-            echo -e "${CYAN}      64 = Yandex${NC}"
-            echo -e "${CYAN}      66 = iCloud${NC}"
-            echo -e "${CYAN}  - For other options: accept defaults by pressing Enter${NC}"
-            echo -e "${CYAN}  - Auto config: n (headless)${NC}"
-            echo -e "${CYAN}  - Then paste the URL in your browser, authorize, and paste the code back${NC}"
-            echo ""
-            rclone config
-            echo -e "${CYAN}[INFO] Extracting token from config...${NC}"
-            GOOGLE_DRIVE_TOKEN=$(grep -A5 "\[gdrive\]" "${GLOBAL_RCLONE}" 2>/dev/null | grep "token" | sed 's/token = //' | head -1)
-            if [[ -z "${GOOGLE_DRIVE_TOKEN}" ]]; then
-                echo -e "${YELLOW}[WARNING] Could not auto-extract token${NC}"
-                echo -e "${CYAN}[INFO] Please paste the token manually from ~/.config/rclone/rclone.conf${NC}"
-                echo -e "${CYAN}The token is the JSON after 'token = ' in [gdrive] section${NC}"
-                read -p "Paste token: " GOOGLE_DRIVE_TOKEN
-            fi
-            sed -i "s|GOOGLE_DRIVE_TOKEN=.*|GOOGLE_DRIVE_TOKEN=${GOOGLE_DRIVE_TOKEN}|" "${TARGET_DIR}/.env"
-            echo -e "${GREEN}[SUCCESS] Token saved${NC}"
-        fi
-    else
-        echo -e "${CYAN}[INFO] Cloud storage not configured. Setting up rclone...${NC}"
-        if ! command -v rclone &> /dev/null; then
-            echo -e "${CYAN}[INFO] Installing rclone...${NC}"
-            curl -fsSL https://rclone.org/install.sh | sh
-        fi
-        echo -e "${CYAN}[INFO] Configuring remote storage (headless)...${NC}"
-        echo -e "${CYAN}[INFO] When asked, choose:${NC}"
-        echo -e "${CYAN}  - n (New remote)${NC}"
-        echo -e "${CYAN}  - name: gdrive (or your preferred name)${NC}"
-        echo -e "${CYAN}  - Storage: enter number or name (see below)${NC}"
-        echo -e "${CYAN}    Popular options:${NC}"
-        echo -e "${CYAN}      5  = Backblaze B2${NC}"
-        echo -e "${CYAN}      10 = Cloudinary${NC}"
-        echo -e "${CYAN}      15 = Dropbox${NC}"
-        echo -e "${CYAN}      24 = Google Drive${NC}"
-        echo -e "${CYAN}      40 = Azure Blob${NC}"
-        echo -e "${CYAN}      42 = OneDrive (Microsoft)${NC}"
-        echo -e "${CYAN}      45 = Oracle Drive${NC}"
-        echo -e "${CYAN}      64 = Yandex${NC}"
-        echo -e "${CYAN}      66 = iCloud${NC}"
-        echo -e "${CYAN}  - For other options: accept defaults by pressing Enter${NC}"
-        echo -e "${CYAN}  - Auto config: n (headless)${NC}"
-        echo -e "${CYAN}  - Then paste the URL in your browser, authorize, and paste the code back${NC}"
-        echo ""
-        rclone config
-        echo -e "${CYAN}[INFO] Extracting token from config...${NC}"
-        GOOGLE_DRIVE_TOKEN=$(grep -A5 "\[gdrive\]" "${GLOBAL_RCLONE}" 2>/dev/null | grep "token" | sed 's/token = //' | head -1)
-        if [[ -z "${GOOGLE_DRIVE_TOKEN}" ]]; then
-            echo -e "${YELLOW}[WARNING] Could not auto-extract token${NC}"
-            echo -e "${CYAN}[INFO] Please paste the token manually from ~/.config/rclone/rclone.conf${NC}"
-            echo -e "${CYAN}The token is the JSON after 'token = ' in [gdrive] section${NC}"
-            read -p "Paste token: " GOOGLE_DRIVE_TOKEN
-        fi
-        sed -i "s|GOOGLE_DRIVE_TOKEN=.*|GOOGLE_DRIVE_TOKEN=${GOOGLE_DRIVE_TOKEN}|" "${TARGET_DIR}/.env"
-        echo -e "${GREEN}[SUCCESS] Token saved${NC}"
-    fi
 fi
 
 echo ""
@@ -444,20 +342,6 @@ else
     echo -e "${YELLOW}[WARNING] PostgreSQL config already exists, skipping${NC}"
 fi
 
-if [[ ! -f "${TARGET_DIR}/config/rclone/rclone.conf" ]]; then
-    echo -e "${CYAN}[INFO] Creating rclone.conf from template...${NC}"
-    cat > "${TARGET_DIR}/config/rclone/rclone.conf" << RCLONE_EOF
-[gdrive]
-type = drive
-scope = drive
-token = ${GOOGLE_DRIVE_TOKEN}
-team_drive = ${GOOGLE_DRIVE_TEAM_DRIVE_ID}
-RCLONE_EOF
-    echo -e "${GREEN}[SUCCESS] rclone.conf created${NC}"
-else
-    echo -e "${YELLOW}[WARNING] rclone.conf already exists, skipping${NC}"
-fi
-
 if [[ ! -f "${TARGET_DIR}/monitoring/prometheus.yml" ]]; then
     echo -e "${CYAN}[INFO] Creating monitoring configs...${NC}"
     cat > "${TARGET_DIR}/monitoring/prometheus.yml" << 'EOF'
@@ -587,8 +471,6 @@ if [[ ! -f "${TARGET_DIR}/templates/backup.sh" ]]; then
 set -e
 
 BACKUP_DIR="/backups"
-GOOGLE_DRIVE_REMOTE="${GOOGLE_DRIVE_REMOTE_NAME}"
-GOOGLE_DRIVE_FOLDER="${GOOGLE_DRIVE_FOLDER}"
 DATABASE="${POSTGRES_DB}"
 DB_USER="${POSTGRES_USER}"
 DB_HOST="postgres"
@@ -600,7 +482,6 @@ SMTP_PORT="${SMTP_PORT:-587}"
 SMTP_USER="${SMTP_USER:-}"
 SMTP_PASSWORD="${SMTP_PASSWORD:-}"
 SMTP_FROM="${SMTP_FROM:-}"
-MONITORING_ENABLED="${MONITORING_ENABLED:-false}"
 
 send_alert_email() {
     local subject="$1"
@@ -653,23 +534,6 @@ DURATION=$((END_TIME - START_TIME))
 
 echo "[INFO] Backup completed: ${BACKUP_FILE} (${BACKUP_SIZE})"
 
-UPLOAD_STATUS="SUCCESS"
-if command -v rclone &> /dev/null; then
-    if ! rclone copy "${BACKUP_DIR}/${BACKUP_FILE}" "${GOOGLE_DRIVE_REMOTE}:${GOOGLE_DRIVE_FOLDER}/" --progress 2>&1; then
-        UPLOAD_STATUS="FAILED"
-        echo "[WARNING] Upload to Google Drive failed"
-    else
-        echo "[SUCCESS] Backup uploaded to Google Drive"
-
-        rclone lsf "${GOOGLE_DRIVE_REMOTE}:${GOOGLE_DRIVE_FOLDER}/" --sort-by=modtime,desc 2>/dev/null | tail -n +$((MAX_BACKUPS + 1)) | while read file; do
-            rclone delete "${GOOGLE_DRIVE_REMOTE}:${GOOGLE_DRIVE_FOLDER}/${file}" 2>/dev/null || true
-        done
-        echo "[INFO] Old backups cleaned from Google Drive"
-    fi
-else
-    UPLOAD_STATUS="SKIPPED"
-fi
-
 find "${BACKUP_DIR}" -name "backup_*.sql.gz" -mtime +30 -delete 2>/dev/null || true
 cd "${BACKUP_DIR}" && ls -t backup_*.sql.gz 2>/dev/null | tail -n +$((MAX_BACKUPS + 1)) | xargs -r rm -f
 
@@ -683,7 +547,6 @@ Date: $(date '+%Y-%m-%d %H:%M:%S')
 Backup File: ${BACKUP_FILE}
 Size: ${BACKUP_SIZE}
 Duration: ${DURATION} seconds
-Upload Status: ${UPLOAD_STATUS}
 Local Backups Kept: ${BACKUP_COUNT}
 
 Service Status:
@@ -709,6 +572,24 @@ else
     echo -e "${CYAN}[INFO] Starting containers without monitoring...${NC}"
     docker compose up -d
     echo -e "${GREEN}[SUCCESS] Containers started${NC}"
+fi
+
+if [[ -z "${GOOGLE_DRIVE_TOKEN}" || "${GOOGLE_DRIVE_TOKEN}" == *"changeme"* ]]; then
+    echo ""
+    echo -e "${YELLOW}[WARNING] Google Drive token not configured${NC}"
+    echo -e "${CYAN}This is needed for rclone backups to Google Drive.${NC}"
+    if [[ -f "${TARGET_DIR}/rclone-token.sh" ]]; then
+        echo -e "${CYAN}Run the following command on your LOCAL computer to get a token:${NC}"
+        echo -e "  ${GREEN}scp -r <user>@<host>:/path/to/rclone-token.sh . && ./rclone-token.sh${NC}"
+    else
+        echo -e "${CYAN}To get a token:${NC}"
+        echo -e "  1. Run 'rclone config' on your LOCAL computer"
+        echo -e "  2. Create a Google Drive remote named 'gdrive'"
+        echo -e "  3. Copy the token from ~/.config/rclone/rclone.conf"
+    fi
+    echo -e "${CYAN}Then add it to .env:${NC}"
+    echo -e "  ${YELLOW}sed -i 's/GOOGLE_DRIVE_TOKEN=.*/GOOGLE_DRIVE_TOKEN=<your_token>/' .env${NC}"
+    echo ""
 fi
 
 POSTGRES_STATUS=$(docker exec postgres pg_isready -U "${DB_USER}" 2>/dev/null && echo "UP" || echo "DOWN")
