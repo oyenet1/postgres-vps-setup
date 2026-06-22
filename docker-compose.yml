@@ -482,6 +482,7 @@ services:
 networks:
   infra:
     name: infra
+    external: true
     driver: overlay
     attachable: true
 

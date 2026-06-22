@@ -237,7 +237,14 @@ R2_BUCKET=...
 After editing, re-render and redeploy:
 ```bash
 sudo ./setup.sh --no-start      # regenerate configs
-./scripts/deploy.sh             # validates any existing infra network, then deploys
+./scripts/deploy.sh             # creates/validates the infra network, then deploys
+```
+
+If you deploy manually without the wrapper, create the swarm-scoped network first:
+
+```bash
+docker network create --driver overlay --attachable infra 2>/dev/null || true
+docker stack deploy -c docker-compose.yml infra
 ```
 
 ## Ports

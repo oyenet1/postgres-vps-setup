@@ -34,6 +34,9 @@ if docker network inspect infra >/dev/null 2>&1; then
     echo "[deploy] network infra exists but is ${DRIVER}/${SCOPE}, expected overlay/swarm" >&2
     exit 1
   fi
+else
+  echo "[deploy] Creating overlay network: infra"
+  docker network create --driver overlay --attachable infra >/dev/null
 fi
 
 echo "[deploy] Deploying stack: $STACK_NAME"

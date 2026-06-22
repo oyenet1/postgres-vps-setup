@@ -573,6 +573,9 @@ ensure_infra_network() {
   local scope
 
   if ! docker network inspect "$network_name" >/dev/null 2>&1; then
+    log "Creating Docker overlay network: ${network_name}"
+    docker network create --driver overlay --attachable "$network_name" >/dev/null
+    ok "Created Docker overlay network ${network_name}"
     return
   fi
 
@@ -918,6 +921,10 @@ Useful commands:
   docker stack ps infra
   docker service logs infra_pgbouncer -f
   ./scripts/deploy.sh
+
+Manual deploy:
+  docker network create --driver overlay --attachable infra 2>/dev/null || true
+  docker stack deploy -c docker-compose.yml infra
 EOF
 }
 
