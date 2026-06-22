@@ -57,9 +57,18 @@ Your app container can now reach all infrastructure services by **short DNS name
 1. Open **pgAdmin** (host port from infrastructure `.env`, default `5050`).
 2. Connect to server `postgres` (already configured in infrastructure stack).
 3. Create database: `yourproject_db` (pick a clear name, e.g. `lodgestatus_db`, `dukapos_db`).
-4. Create a dedicated Postgres **role** for the app (recommended — do not reuse the superuser).
+4. Create a dedicated Postgres **login role** for the app (recommended — do not reuse the superuser).
+5. Grant that role access to the database and schemas your migrations create.
 
-**No changes needed** in PgBouncer or backup config. New databases are routed and backed up automatically.
+Example:
+
+```sql
+CREATE DATABASE yourproject_db;
+CREATE ROLE your_user LOGIN PASSWORD 'use-a-strong-password';
+GRANT CONNECT ON DATABASE yourproject_db TO your_user;
+```
+
+**No changes needed** in PgBouncer or backup config. New databases are routed automatically, and new login roles authenticate through PgBouncer's Postgres-backed `auth_query`.
 
 ---
 

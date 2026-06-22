@@ -78,15 +78,15 @@ PgBouncer connection pooling is on port `6543`. Just change the database name in
 | Same Docker Swarm (overlay network) | `postgres://postgres:PASS@pgbouncer:6432/mydb` |
 | External / internet | `postgres://postgres:PASS@YOUR_VPS_IP:6543/mydb` |
 
-Using the same stack with **multiple databases**? PgBouncer routes by database name automatically:
+Using the same stack with **multiple databases and roles**? PgBouncer routes by database name automatically and authenticates new login roles from Postgres:
 
 ```
-postgres://postgres:PASS@YOUR_VPS_IP:6543/app1
-postgres://postgres:PASS@YOUR_VPS_IP:6543/app2
-postgres://postgres:PASS@YOUR_VPS_IP:6543/app3
+postgres://app1_user:PASS@YOUR_VPS_IP:6543/app1
+postgres://app2_user:PASS@YOUR_VPS_IP:6543/app2
+postgres://app3_user:PASS@YOUR_VPS_IP:6543/app3
 ```
 
-Just create each database first (see below).
+Just create each database and login role first (see below). No PgBouncer config edit or reload is needed.
 
 ### Postgres direct (admin tools only)
 
@@ -224,6 +224,8 @@ GRAFANA_PASSWORD=...            # auto-generated
 
 PGBOUNCER_PORT=6543
 PGBOUNCER_BIND_ADDR=0.0.0.0     # apps reach PgBouncer on this port
+PGBOUNCER_AUTH_USER=pgbouncer_auth
+PGBOUNCER_AUTH_PASSWORD=...     # auto-generated; lets PgBouncer auth future roles
 
 R2_BACKUP_ENABLED=false         # set true to upload to Cloudflare R2
 R2_ACCESS_KEY_ID=...
@@ -242,8 +244,9 @@ docker stack deploy -c docker-compose.yml infra
 
 | Service | Default | Purpose |
 |---|---|---|
-| PgBouncer | `0.0.0.0:6543` | Main app endpoint for Postgres |
+| PgBouncer | `0.0.0.0:6543` | Main app endpoint for Postgres (TLS optional) |
 | PostgreSQL | `127.0.0.1:5432` | Local admin only |
+| PostgreSQL (direct) | `0.0.0.0:5544` | Direct PostgreSQL access (bypasses PgBouncer) |
 | pgAdmin | `127.0.0.1:5050` | Browser UI |
 | Redis | `127.0.0.1:6379` | Local Redis |
 | Prometheus | `127.0.0.1:9090` | Monitoring only |

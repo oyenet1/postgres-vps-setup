@@ -19,6 +19,7 @@ CREATE OR REPLACE FUNCTION pgbouncer.get_auth(username TEXT)
 RETURNS TABLE(username TEXT, password TEXT)
 LANGUAGE sql
 SECURITY DEFINER
+SET search_path = pg_catalog
 AS $$
   SELECT rolname::TEXT, rolpassword::TEXT
   FROM pg_authid
@@ -52,6 +53,7 @@ CREATE OR REPLACE FUNCTION pgbouncer.get_auth(username TEXT)
 RETURNS TABLE(username TEXT, password TEXT)
 LANGUAGE sql
 SECURITY DEFINER
+SET search_path = pg_catalog
 AS $$
   SELECT rolname::TEXT, rolpassword::TEXT
   FROM pg_authid
@@ -85,6 +87,7 @@ CREATE OR REPLACE FUNCTION pgbouncer.get_auth(username TEXT)
 RETURNS TABLE(username TEXT, password TEXT)
 LANGUAGE sql
 SECURITY DEFINER
+SET search_path = pg_catalog
 AS $$
   SELECT rolname::TEXT, rolpassword::TEXT
   FROM pg_authid

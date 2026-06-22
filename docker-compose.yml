@@ -31,6 +31,8 @@ configs:
     file: ./config/rclone/rclone.generated.conf
   initdb_sql:
     file: ./initdb/01-bootstrap.sql
+  initdb_auth_sh:
+    file: ./initdb/02-pgbouncer-auth.sh
   loki_yaml:
     file: ./monitoring/loki.yml
   alloy_config:
@@ -55,6 +57,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+      PGBOUNCER_AUTH_USER: ${PGBOUNCER_AUTH_USER:-pgbouncer_auth}
+      PGBOUNCER_AUTH_PASSWORD: ${PGBOUNCER_AUTH_PASSWORD}
     command:
       - postgres
       - -c
@@ -72,6 +76,10 @@ services:
         published: ${POSTGRES_PORT:-5432}
         protocol: tcp
         mode: host
+      - target: 5432
+        published: ${POSTGRES_PORT_DIRECT:-5544}
+        protocol: tcp
+        mode: host
     networks:
       - infra
     healthcheck:
@@ -86,6 +94,9 @@ services:
         mode: 0444
       - source: pg_hba
         target: /etc/postgresql/pg_hba.conf
+        mode: 0444
+      - source: initdb_auth_sh
+        target: /docker-entrypoint-initdb.d/02-pgbouncer-auth.sh
         mode: 0444
       - source: postgresql_conf
         target: /etc/postgresql/postgresql.conf

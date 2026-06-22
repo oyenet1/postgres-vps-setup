@@ -211,8 +211,9 @@ configure_firewall() {
   fi
 
   ufw allow "$(env_value PGBOUNCER_PORT)/tcp"
+  ufw allow "$(env_value POSTGRES_PORT_DIRECT)/tcp"
   ufw --force enable
-  ok "Firewall allows PgBouncer on port $(env_value PGBOUNCER_PORT)"
+  ok "Firewall allows PgBouncer on port $(env_value PGBOUNCER_PORT) and Postgres on port $(env_value POSTGRES_PORT_DIRECT)"
 }
 
 prepare_env() {
@@ -230,6 +231,7 @@ prepare_env() {
   set_default_env POSTGRES_DB postgres
   set_default_env POSTGRES_USER postgres
   set_default_env POSTGRES_PORT 5432
+  set_default_env POSTGRES_PORT_DIRECT 5544
   set_default_env POSTGRES_BIND_ADDR 127.0.0.1
   set_default_env PGBOUNCER_PORT 6543
   set_default_env PGBOUNCER_BIND_ADDR 0.0.0.0
@@ -643,34 +645,48 @@ configure_database_auth() {
   fi
 
   docker run --rm -i --network infra -e PGPASSWORD="$pg_password" "$pg_image" \
-    psql -h postgres -U "$pg_user" -d postgres -v ON_ERROR_STOP=1 <<SQL
+    psql \
+      -h postgres \
+      -U "$pg_user" \
+      -d postgres \
+      -v ON_ERROR_STOP=1 \
+      -v pgbouncer_auth_user="$auth_user" \
+      -v pgbouncer_auth_password="$auth_password" <<'SQL'
 CREATE SCHEMA IF NOT EXISTS pgbouncer;
 
 CREATE OR REPLACE FUNCTION pgbouncer.get_auth(username TEXT)
 RETURNS TABLE(username TEXT, password TEXT)
 LANGUAGE sql
 SECURITY DEFINER
-AS \$\$
+SET search_path = pg_catalog
+AS $$
   SELECT rolname::TEXT, rolpassword::TEXT
   FROM pg_authid
   WHERE rolname = username
     AND rolcanlogin
     AND (rolvaliduntil IS NULL OR rolvaliduntil > now())
-\$\$;
+$$;
 
 REVOKE ALL ON FUNCTION pgbouncer.get_auth(TEXT) FROM PUBLIC;
 
-DO \$\$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${auth_user}') THEN
-    CREATE ROLE ${auth_user} LOGIN PASSWORD '${auth_password}';
-  ELSE
-    ALTER ROLE ${auth_user} LOGIN PASSWORD '${auth_password}';
-  END IF;
-END
-\$\$;
-GRANT USAGE ON SCHEMA pgbouncer TO ${auth_user};
-GRANT EXECUTE ON FUNCTION pgbouncer.get_auth(TEXT) TO ${auth_user};
+SELECT format('CREATE ROLE %I LOGIN', :'pgbouncer_auth_user')
+WHERE NOT EXISTS (
+  SELECT 1 FROM pg_roles WHERE rolname = :'pgbouncer_auth_user'
+)
+\gexec
+
+SELECT format(
+  'ALTER ROLE %I WITH LOGIN PASSWORD %L',
+  :'pgbouncer_auth_user',
+  :'pgbouncer_auth_password'
+)
+\gexec
+
+SELECT format('GRANT USAGE ON SCHEMA pgbouncer TO %I', :'pgbouncer_auth_user')
+\gexec
+
+SELECT format('GRANT EXECUTE ON FUNCTION pgbouncer.get_auth(TEXT) TO %I', :'pgbouncer_auth_user')
+\gexec
 SQL
 
   docker service update --force infra_pgbouncer >/dev/null 2>&1 || true

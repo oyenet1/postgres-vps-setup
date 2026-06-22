@@ -210,10 +210,14 @@ Without aliases, cross-stack DNS would require `infrastructure_pgbouncer` — al
 
 ```ini
 [databases]
-* = host=postgres port=5432
+* = host=postgres port=5432 auth_user=pgbouncer_auth
+
+[pgbouncer]
+auth_query = SELECT username, password FROM pgbouncer.get_auth($1)
+auth_dbname = postgres
 ```
 
-New DB in pgAdmin → immediately available at `pgbouncer:6543/<dbname>`. No reload.
+New DB in pgAdmin → immediately available at `pgbouncer:6543/<dbname>`. New login roles also work without PgBouncer config changes because PgBouncer asks Postgres for SCRAM password hashes through `pgbouncer.get_auth`.
 
 Pool: `transaction` mode, `scram-sha-256`, `MAX_CLIENT_CONN=10000`, `DEFAULT_POOL_SIZE=100`.
 
