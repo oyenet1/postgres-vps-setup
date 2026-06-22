@@ -89,7 +89,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (status) (rate(http_requests_total{service=~\"$service\"}[5m]))",
+          "expr": "sum by (status) (rate(http_requests_total{service=~\"$service\", method=~\"$method\", path=~\"$path\", status=~\"$status\"}[5m]))",
           "legendFormat": "{{status}}",
           "refId": "A"
         }
@@ -125,7 +125,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(rate(http_requests_total{service=~\"$service\", status=~\"5..\"}[5m])) * 60",
+          "expr": "sum(rate(http_requests_total{service=~\"$service\", method=~\"$method\", path=~\"$path\", status=~\"5..\"}[5m])) * 60",
           "legendFormat": "5xx/min",
           "refId": "A"
         }
@@ -161,7 +161,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(rate(http_requests_total{service=~\"$service\", status=~\"4..\"}[5m])) * 60",
+          "expr": "sum(rate(http_requests_total{service=~\"$service\", method=~\"$method\", path=~\"$path\", status=~\"4..\"}[5m])) * 60",
           "legendFormat": "4xx/min",
           "refId": "A"
         }
@@ -266,7 +266,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (method, path) (rate(http_requests_total{service=~\"$service\"}[5m])) * 300",
+          "expr": "sum by (method, path) (rate(http_requests_total{service=~\"$service\", method=~\"$method\", path=~\"$path\", status=~\"$status\"}[5m])) * 300",
           "format": "table",
           "instant": true,
           "legendFormat": "Visits",
@@ -274,7 +274,7 @@
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (method, path) (rate(http_requests_total{service=~\"$service\", status=~\"4..\"}[5m])) * 300",
+          "expr": "sum by (method, path) (rate(http_requests_total{service=~\"$service\", method=~\"$method\", path=~\"$path\", status=~\"4..\"}[5m])) * 300",
           "format": "table",
           "instant": true,
           "legendFormat": "400s",
@@ -282,7 +282,7 @@
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (method, path) (rate(http_requests_total{service=~\"$service\", status=~\"5..\"}[5m])) * 300",
+          "expr": "sum by (method, path) (rate(http_requests_total{service=~\"$service\", method=~\"$method\", path=~\"$path\", status=~\"5..\"}[5m])) * 300",
           "format": "table",
           "instant": true,
           "legendFormat": "500s",
@@ -290,7 +290,7 @@
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "1000 * histogram_quantile(0.70, sum by (le, method, path) (rate(http_request_duration_seconds_bucket{service=~\"$service\"}[5m])))",
+          "expr": "1000 * histogram_quantile(0.70, sum by (le, method, path) (rate(http_request_duration_seconds_bucket{service=~\"$service\", method=~\"$method\", path=~\"$path\", status=~\"$status\"}[5m])))",
           "format": "table",
           "instant": true,
           "legendFormat": "p70",
@@ -298,7 +298,7 @@
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "1000 * histogram_quantile(0.90, sum by (le, method, path) (rate(http_request_duration_seconds_bucket{service=~\"$service\"}[5m])))",
+          "expr": "1000 * histogram_quantile(0.90, sum by (le, method, path) (rate(http_request_duration_seconds_bucket{service=~\"$service\", method=~\"$method\", path=~\"$path\", status=~\"$status\"}[5m])))",
           "format": "table",
           "instant": true,
           "legendFormat": "p90",
@@ -306,7 +306,7 @@
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "1000 * histogram_quantile(0.95, sum by (le, method, path) (rate(http_request_duration_seconds_bucket{service=~\"$service\"}[5m])))",
+          "expr": "1000 * histogram_quantile(0.95, sum by (le, method, path) (rate(http_request_duration_seconds_bucket{service=~\"$service\", method=~\"$method\", path=~\"$path\", status=~\"$status\"}[5m])))",
           "format": "table",
           "instant": true,
           "legendFormat": "p95",
@@ -314,7 +314,7 @@
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "1000 * sum by (method, path) (rate(http_request_duration_seconds_sum{service=~\"$service\"}[5m])) / clamp_min(sum by (method, path) (rate(http_request_duration_seconds_count{service=~\"$service\"}[5m])), 1)",
+          "expr": "1000 * sum by (method, path) (rate(http_request_duration_seconds_sum{service=~\"$service\", method=~\"$method\", path=~\"$path\", status=~\"$status\"}[5m])) / clamp_min(sum by (method, path) (rate(http_request_duration_seconds_count{service=~\"$service\", method=~\"$method\", path=~\"$path\", status=~\"$status\"}[5m])), 1)",
           "format": "table",
           "instant": true,
           "legendFormat": "avg",
@@ -360,25 +360,25 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "1000 * histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{service=~\"$service\"}[5m])))",
+          "expr": "1000 * histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{service=~\"$service\", method=~\"$method\", path=~\"$path\", status=~\"$status\"}[5m])))",
           "legendFormat": "p50",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "1000 * histogram_quantile(0.90, sum by (le) (rate(http_request_duration_seconds_bucket{service=~\"$service\"}[5m])))",
+          "expr": "1000 * histogram_quantile(0.90, sum by (le) (rate(http_request_duration_seconds_bucket{service=~\"$service\", method=~\"$method\", path=~\"$path\", status=~\"$status\"}[5m])))",
           "legendFormat": "p90",
           "refId": "B"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "1000 * histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{service=~\"$service\"}[5m])))",
+          "expr": "1000 * histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{service=~\"$service\", method=~\"$method\", path=~\"$path\", status=~\"$status\"}[5m])))",
           "legendFormat": "p95",
           "refId": "C"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "1000 * histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{service=~\"$service\"}[5m])))",
+          "expr": "1000 * histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{service=~\"$service\", method=~\"$method\", path=~\"$path\", status=~\"$status\"}[5m])))",
           "legendFormat": "p99",
           "refId": "D"
         }
@@ -403,7 +403,7 @@
       "targets": [
         {
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "{service=~\"$service\"} |~ \"(?i)(error|exception|stack|trace|fatal|panic)\" | line_format \"{{.container}} {{_entry}}\"",
+          "expr": "{service=~\"$service\", swarm_service=~\".+\"} |~ \"(?i)(error|exception|stack|trace|fatal|panic)\" | line_format \"{{.container}} {{_entry}}\"",
           "refId": "A"
         }
       ],
@@ -427,7 +427,7 @@
       "targets": [
         {
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "{service=~\"$service\"}",
+          "expr": "{service=~\"$service\", swarm_service=~\".+\"}",
           "refId": "A"
         }
       ],
@@ -452,6 +452,66 @@
         "options": [],
         "query": {
           "query": "label_values(http_requests_total{job=\"apps\"}, service)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": { "selected": false, "text": "All", "value": "$__all" },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(http_requests_total{job=\"apps\", service=~\"$service\"}, method)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Method",
+        "multi": true,
+        "name": "method",
+        "options": [],
+        "query": {
+          "query": "label_values(http_requests_total{job=\"apps\", service=~\"$service\"}, method)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": { "selected": false, "text": "All", "value": "$__all" },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(http_requests_total{job=\"apps\", service=~\"$service\", method=~\"$method\"}, path)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Endpoint",
+        "multi": true,
+        "name": "path",
+        "options": [],
+        "query": {
+          "query": "label_values(http_requests_total{job=\"apps\", service=~\"$service\", method=~\"$method\"}, path)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": { "selected": false, "text": "All", "value": "$__all" },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(http_requests_total{job=\"apps\", service=~\"$service\"}, status)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Status",
+        "multi": true,
+        "name": "status",
+        "options": [],
+        "query": {
+          "query": "label_values(http_requests_total{job=\"apps\", service=~\"$service\"}, status)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,

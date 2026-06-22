@@ -304,54 +304,77 @@ To use `postgres`, `pgbouncer`, `redis-proxy` as names from other Swarms, instal
 
 ## Monitoring your apps (Prometheus + Grafana)
 
-The infra stack ships with Prometheus + Grafana. To add an app's `/v1/metrics` endpoint:
+The infra stack ships with Prometheus, Grafana, Loki, and Alloy. Adding a new app to monitoring is a 3-step process that takes about 5 minutes:
 
-1. **Make sure the app is on the `infra` overlay network.** When you deploy the app's stack, set its `networks:` block to:
-   ```yaml
-   networks:
-     - external: true
-       name: infra_infra
-   ```
+### 1. Make the app reachable from the `infra` stack
 
-2. **Create a target file in `monitoring/targets/<appname>.json`:**
-   ```json
-   [
-     {
-       "targets": ["<stack>_<service>:<port>"],
-       "labels": {
-         "job": "<short-name>",
-         "service": "<app-name>",
-         "env": "production",
-         "metrics_path": "/v1/metrics",
-         "scheme": "http"
-       }
-     }
-   ]
-   ```
-   Example: `monitoring/targets/lodgestatus.json` is included as a starter.
+In the app's `docker-swarm.yml`, join the `infra` overlay network:
 
-3. **Reload Prometheus** (no service restart needed):
-   ```bash
-   docker exec $(docker ps -q -f name=infra_prometheus) \
-     wget -qO- --post-data='' http://localhost:9090/-/reload
-   ```
-   Or use the `--web.enable-lifecycle` endpoint: `curl -X POST http://YOUR_VPS_IP:9090/-/reload`
+```yaml
+networks:
+  - external: true
+    name: infra_infra
+```
 
-4. **Open Grafana** at `http://YOUR_VPS_IP:3030` (login: `admin` / `GRAFANA_PASSWORD` from `infra/.env`).
+### 2. Drop a target file in `monitoring/targets/<appname>.json`
 
-5. **Pre-built dashboards:**
-   - **Infrastructure Overview** — host CPU/memory/disk, postgres, redis, app status
-   - **App Performance & Errors** — per-app view: request rate, 4xx/5xx counts, latency percentiles, per-endpoint table (visits + 400s + 500s + p70/p90/p95/avg), errors/stack-traces log panel, full log stream. Pick the app from the `$service` dropdown.
+```json
+[
+  {
+    "targets": ["<stack>_<service>:<port>"],
+    "labels": {
+      "job": "apps",
+      "service": "<app-name>",
+      "env": "production",
+      "metrics_path": "/v1/metrics",
+      "scheme": "http"
+    }
+  }
+]
+```
+
+A starter is included at `monitoring/targets/lodgestatus.json` (gitignored, so feel free to edit or delete).
+
+### 3. Reload Prometheus (no service restart)
+
+```bash
+curl -X POST http://YOUR_VPS_IP:9090/-/reload
+```
+
+### Done. The app is now monitored.
+
+Open Grafana at `http://YOUR_VPS_IP:3030` (login: `admin` / `GRAFANA_PASSWORD` from `infra/.env`).
+
+**Pre-built dashboards** (auto-provisioned, no setup needed):
+
+| Dashboard | What it shows |
+|---|---|
+| **Infrastructure Overview** | Host CPU/memory/disk, postgres connections, redis activity, app up/down status |
+| **App Performance & Errors** | Per-app view: request rate, 4xx/5xx counts, latency percentiles, per-endpoint table, errors/stack-traces, full logs |
+
+The **App Performance & Errors** dashboard has filter dropdowns at the top — pick one app or filter by method/path/status to drill in. Time range is the standard Grafana picker at the top-right (default: last 1 hour).
+
+### Filtering on the App Performance & Errors dashboard
+
+| Filter | Source | Notes |
+|---|---|---|
+| **Service** | `label_values(http_requests_total, service)` | All apps on the network. Multi-select. |
+| **Method** | `label_values(..., method)` | GET, POST, PUT, etc. Multi-select. |
+| **Endpoint** | `label_values(..., path)` | All route templates. Multi-select. |
+| **Status** | `label_values(..., status)` | 200, 201, 4xx, 5xx. Multi-select. |
+| **Time range** | Grafana picker | Top right. Default: last 1h. |
+
+All panels (request rate, error counts, latency percentiles, endpoint table, log streams) respect the active filters.
 
 ### Why this is safe without auth
 
 - The app's metrics endpoint should be on the overlay network only (no `mode: host` port publish for `/v1/metrics`).
 - Only the prometheus container inside the `infra` stack can reach it.
-- If you must expose the metrics endpoint publicly, add `"__bearer_token": "<token>"` to the JSON labels and configure prometheus to use it via `relabel_configs` (see the [Prometheus docs on file_sd](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#file_sd_config)).
+- The app's `/v1/metrics` should have auth disabled (or accept requests from the overlay without a token). If you need bearer auth, see the [Prometheus file_sd docs](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#file_sd_config) for adding `bearer_token_file` per job.
 
 ### App metrics contract
 
-The auto-provisioned **App Performance & Errors** Grafana dashboard works for any app that exposes the following Prometheus metrics. Adopt this in your app's metrics middleware:
+The **App Performance & Errors** dashboard works for any app that exposes these Prometheus metrics. Adopt this in your app's metrics middleware:
 
 ```
 # Counter: one increment per request
@@ -366,42 +389,77 @@ http_request_duration_seconds{method, path, status}  (in seconds)
 - `path` — normalized route (e.g. `/v1/users/:id`, not `/v1/users/12345`)
 - `status` — HTTP status code as a string (`"200"`, `"404"`, `"500"`)
 
-**Node.js / Express example:**
+**Node.js / Hono example:**
 ```js
-const httpRequestDurationSeconds = new client.Histogram({
+import { Counter, Histogram, Registry, collectDefaultMetrics } from "prom-client";
+
+const metricsRegistry = new Registry();
+collectDefaultMetrics({ register: metricsRegistry });
+
+const httpRequestDurationSeconds = new Histogram({
   name: "http_request_duration_seconds",
   help: "HTTP request duration in seconds",
   labelNames: ["method", "path", "status"],
   buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+  registers: [metricsRegistry],
 });
-const httpRequestsTotal = new client.Counter({
+const httpRequestsTotal = new Counter({
   name: "http_requests_total",
   help: "Total HTTP requests",
   labelNames: ["method", "path", "status"],
+  registers: [metricsRegistry],
 });
 
-app.use((req, res, next) => {
-  const start = process.hrtime.bigint();
-  res.on("finish", () => {
-    const duration = Number(process.hrtime.bigint() - start) / 1e9;
-    const labels = { method: req.method, path: req.route?.path || req.path, status: String(res.statusCode) };
-    httpRequestDurationSeconds.observe(labels, duration);
-    httpRequestsTotal.inc(labels);
+export function metricsMiddleware(c, next) {
+  const method = c.req.method;
+  const path = c.req.path;
+  const endTimer = httpRequestDurationSeconds.startTimer({ method, path });
+  return next().finally(() => {
+    const status = String(c.res.status || 200);
+    endTimer({ status });
+    httpRequestsTotal.inc({ method, path, status });
   });
-  next();
-});
+}
 ```
 
-The dashboard panels are:
+**Python / FastAPI example:**
+```python
+from prometheus_client import Counter, Histogram
 
-| Panel | Source | What it shows |
+REQUESTS = Counter("http_requests_total", "Total HTTP requests", ["method", "path", "status"])
+DURATION = Histogram("http_request_duration_seconds", "Request duration",
+                     ["method", "path", "status"],
+                     buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10])
+
+@app.middleware("http")
+async def metrics_middleware(request, call_next):
+    method = request.method
+    path = request.url.path
+    with DURATION.labels(method=method, path=path).time():
+        response = await call_next(request)
+    REQUESTS.labels(method=method, path=path, status=str(response.status_code)).inc()
+    return response
+```
+
+### Panel reference
+
+| Panel | PromQL source | What it shows |
 |---|---|---|
-| Service Status | `up{job="apps"}` | 1 = up, 0 = down |
+| Service Status | `up{job="apps"}` | 1 = up, 0 = down (one row per service) |
 | Request Rate by Status | `rate(http_requests_total)` | Stacked line per status code |
-| 4xx Errors / min | `rate(..., status=~"4..")` | 4xx rate |
-| 5xx Errors / min | `rate(..., status=~"5..")` | 5xx rate |
+| 4xx Errors / min | `rate(..., status=~"4..")` | 4xx rate, last 5 min |
+| 5xx Errors / min | `rate(..., status=~"5..")` | 5xx rate, last 5 min |
 | Endpoints (table) | `histogram_quantile(0.70/0.90/0.95)` + counters | Per-endpoint: visits, 400 count, 500 count, p70/p90/p95/avg in ms |
 | Latency Percentiles | `histogram_quantile(0.50/0.90/0.95/0.99)` | p50, p90, p95, p99 over time |
+| Errors / Stack Traces | Loki `{service="$service"} \|~ "(?i)(error|...)"` | Log lines containing errors |
+| All logs | Loki `{service="$service"}` | Full log stream for the selected service |
+
+### Adding more apps (recap)
+
+1. Join the `infra` network
+2. Drop a JSON in `monitoring/targets/`
+3. `curl -X POST http://YOUR_VPS_IP:9090/-/reload`
+4. Done — the app appears in every dashboard and the `$service` dropdown.
 | Errors / Stack Traces | Loki `{service="$service"} \|~ "(?i)(error|exception|...)"` | Log lines containing errors |
 | All logs | Loki `{service="$service"}` | Full log stream for the selected service |
 
