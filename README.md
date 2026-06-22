@@ -244,6 +244,7 @@ If you deploy manually without the wrapper, create the swarm-scoped network firs
 
 ```bash
 docker network create --driver overlay --attachable infra 2>/dev/null || true
+./setup.sh --no-start
 docker stack deploy -c docker-compose.yml infra
 ./scripts/configure-pgbouncer-auth.sh
 ```

@@ -39,6 +39,9 @@ else
   docker network create --driver overlay --attachable infra >/dev/null
 fi
 
+echo "[deploy] Rendering generated config from .env"
+./setup.sh --no-start
+
 echo "[deploy] Deploying stack: $STACK_NAME"
 docker stack deploy "${COMPOSE_FILES[@]}" "$STACK_NAME"
 
