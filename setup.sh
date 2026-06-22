@@ -252,6 +252,7 @@ prepare_env() {
   set_default_env GRAFANA_PORT 3030
   set_default_env ALERT_FROM alerts@example.com
   set_default_env SMTP_SMARTHOST smtp.gmail.com:587
+  set_default_env LODGESTATUS_METRICS_TOKEN ""
 
   ensure_env_value POSTGRES_PASSWORD
   ensure_env_value PGBOUNCER_AUTH_PASSWORD
