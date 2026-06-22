@@ -515,8 +515,31 @@ init_swarm() {
     ok "Docker Swarm is already active"
     return
   fi
+
   log "Initializing Docker Swarm"
-  docker swarm init --advertise-addr "${SWARM_ADVERTISE_ADDR:-eth0}" 2>/dev/null || true
+
+  local advertise_addr="${SWARM_ADVERTISE_ADDR:-}"
+  if [[ -z "$advertise_addr" ]]; then
+    advertise_addr="$(detect_swarm_advertise_addr)"
+  fi
+
+  if [[ -n "$advertise_addr" ]]; then
+    log "Using advertise address: $advertise_addr"
+    docker swarm init --advertise-addr "$advertise_addr" || fail "docker swarm init failed (advertise-addr=$advertise_addr)"
+  else
+    warn "Could not auto-detect network interface, trying without --advertise-addr"
+    docker swarm init || fail "docker swarm init failed; set SWARM_ADVERTISE_ADDR explicitly and retry"
+  fi
+
+  ok "Docker Swarm initialized"
+}
+
+detect_swarm_advertise_addr() {
+  local iface
+  iface="$(ip -o link show up 2>/dev/null | awk -F': ' '{print $2}' | grep -vE '^(lo|docker|br-)' | head -1)"
+  if [[ -n "$iface" ]]; then
+    ip -4 addr show "$iface" 2>/dev/null | awk '/inet / {print $2}' | cut -d/ -f1 | head -1
+  fi
 }
 
 start_stack() {
