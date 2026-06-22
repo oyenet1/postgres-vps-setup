@@ -12,7 +12,6 @@ Single-VPS Docker Swarm stack for shared application infrastructure:
 - **Redis** master, replica, 3-node Sentinel, and HAProxy write proxy
 - **Backups** to local disk + optional Cloudflare R2 (always 2 latest kept per DB)
 - **Optional monitoring**: Prometheus, Grafana, Loki, Alloy, Alertmanager, exporters
-- **Optional Cloudflare Tunnel** for private edge access (Hyperdrive/Workers)
 - **Cross-Swarm** service discovery via Tailscale (see `docs/TAILSCALE.md`)
 
 Replace `22` with your real SSH port. The script will:
