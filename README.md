@@ -153,10 +153,6 @@ gunzip -c backups/20260621_235900/myapp.sql.gz | \
   psql -h postgres -U postgres -d myapp
 ```
 
-## Cloudflare Tunnel (optional)
-
-Add `CLOUDFLARE_TUNNEL_TOKEN` to `.env` and redeploy. See `docs/CLOUDFLARE-TUNNEL.md` for full setup including Hyperdrive for Cloudflare Workers.
-
 ## Cross-Swarm service names
 
 To use `postgres`, `pgbouncer`, `redis-proxy` as names from other Swarms, install Tailscale on every VPS. See `docs/TAILSCALE.md`.
