@@ -76,7 +76,7 @@ services:
       mode: replicated
       replicas: 1
       restart_policy:
-        condition: unless-stopped
+        condition: any
         delay: 5s
       placement:
         constraints:
@@ -110,7 +110,7 @@ services:
       mode: replicated
       replicas: 1
       restart_policy:
-        condition: unless-stopped
+        condition: any
 
   pgadmin:
     image: dpage/pgadmin4:${PGADMIN_IMAGE_TAG:-latest}
@@ -136,7 +136,7 @@ services:
       mode: replicated
       replicas: 1
       restart_policy:
-        condition: unless-stopped
+        condition: any
 
   redis-master:
     image: redis:${REDIS_IMAGE_TAG:-7-alpine}
@@ -165,7 +165,7 @@ services:
       mode: replicated
       replicas: 1
       restart_policy:
-        condition: unless-stopped
+        condition: any
 
   redis-replica:
     image: redis:${REDIS_IMAGE_TAG:-7-alpine}
@@ -199,7 +199,7 @@ services:
       mode: replicated
       replicas: 1
       restart_policy:
-        condition: unless-stopped
+        condition: any
 
   redis-sentinel:
     image: redis:${REDIS_IMAGE_TAG:-7-alpine}
@@ -218,7 +218,7 @@ services:
       mode: replicated
       replicas: 3
       restart_policy:
-        condition: unless-stopped
+        condition: any
 
   redis-proxy:
     image: haproxy:${HAPROXY_IMAGE_TAG:-2.9-alpine}
@@ -244,7 +244,7 @@ services:
       mode: replicated
       replicas: 1
       restart_policy:
-        condition: unless-stopped
+        condition: any
 
   backup:
     image: ${INFRA_BACKUP_IMAGE:-infra/backup:latest}
@@ -276,7 +276,7 @@ services:
       mode: replicated
       replicas: 1
       restart_policy:
-        condition: unless-stopped
+        condition: any
 
   cloudflared:
     image: cloudflare/cloudflared:${CLOUDFLARED_IMAGE_TAG:-latest}

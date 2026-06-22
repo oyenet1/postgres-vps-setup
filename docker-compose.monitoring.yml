@@ -32,7 +32,7 @@ services:
       mode: replicated
       replicas: 1
       restart_policy:
-        condition: unless-stopped
+        condition: any
 
   redis-exporter:
     image: oliver006/redis_exporter:${REDIS_EXPORTER_IMAGE_TAG:-v1.63.0}
@@ -46,7 +46,7 @@ services:
       mode: replicated
       replicas: 1
       restart_policy:
-        condition: unless-stopped
+        condition: any
 
   node-exporter:
     image: prom/node-exporter:${NODE_EXPORTER_IMAGE_TAG:-v1.8.2}
@@ -60,7 +60,7 @@ services:
     deploy:
       mode: global
       restart_policy:
-        condition: unless-stopped
+        condition: any
 
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:${CADVISOR_IMAGE_TAG:-v0.49.1}
@@ -76,7 +76,7 @@ services:
     deploy:
       mode: global
       restart_policy:
-        condition: unless-stopped
+        condition: any
 
   loki:
     image: grafana/loki:${LOKI_IMAGE_TAG:-3.0.0}
@@ -99,7 +99,7 @@ services:
       mode: replicated
       replicas: 1
       restart_policy:
-        condition: unless-stopped
+        condition: any
 
   alloy:
     image: grafana/alloy:${ALLOY_IMAGE_TAG:-v1.8.3}
@@ -117,7 +117,7 @@ services:
       mode: replicated
       replicas: 1
       restart_policy:
-        condition: unless-stopped
+        condition: any
       placement:
         constraints:
           - node.role == manager
@@ -142,7 +142,7 @@ services:
       mode: replicated
       replicas: 1
       restart_policy:
-        condition: unless-stopped
+        condition: any
 
   prometheus:
     image: prom/prometheus:${PROMETHEUS_IMAGE_TAG:-v2.53.3}
@@ -172,7 +172,7 @@ services:
       mode: replicated
       replicas: 1
       restart_policy:
-        condition: unless-stopped
+        condition: any
 
   grafana:
     image: grafana/grafana:${GRAFANA_IMAGE_TAG:-11.2.0}
@@ -201,7 +201,7 @@ services:
       mode: replicated
       replicas: 1
       restart_policy:
-        condition: unless-stopped
+        condition: any
 
 networks:
   infra:
