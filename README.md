@@ -11,8 +11,8 @@ Single-VPS Docker Swarm stack for shared application infrastructure:
 - **pgAdmin** on `127.0.0.1:5050`
 - **Redis** master, replica, 3-node Sentinel, and HAProxy write proxy
 - **Backups** to local disk + optional Cloudflare R2 (always 2 latest kept per DB)
-- **Monitoring**: Prometheus, Grafana, Loki, Alloy, Alertmanager, exporters
 - **Cross-Swarm** service discovery via Tailscale (see `docs/TAILSCALE.md`)
+- **Monitoring**: Prometheus, Grafana, Loki, Alloy, Alertmanager, exporters (always included)
 
 Replace `22` with your real SSH port. The script will:
 1. Clone this repo to `/opt/infra`
@@ -39,7 +39,6 @@ sudo ./setup.sh -s 22
 ## Common options
 
 ```bash
-sudo ./setup.sh -s 22            # deploy, SSH port 22
 sudo ./setup.sh -s 22            # deploy (monitoring always included)
 sudo ./setup.sh --no-start       # render config files only, no deploy
 ```
@@ -231,7 +230,6 @@ R2_ACCESS_KEY_ID=...
 R2_SECRET_ACCESS_KEY=...
 R2_BUCKET=...
 
-MONITORING_ENABLED=false        # set true → Prometheus/Grafana/Loki/Alloy/Alertmanager
 ```
 
 After editing, re-render and redeploy:

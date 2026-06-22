@@ -9,7 +9,6 @@ NC='\033[0m'
 
 TARGET_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SSH_PORT=""
-ENABLE_MONITORING=""
 START_STACK="true"
 
 usage() {
