@@ -28,4 +28,14 @@ scrape_configs:
     static_configs:
       - targets: ["node-exporter:9100"]
 
+  - job_name: lodgestatus
+    metrics_path: /v1/metrics
+    scheme: http
+    static_configs:
+      - targets: ["lodgestatus_lodgestatus_app:3004"]
+        labels:
+          service: lodgestatus
+          env: production
+    bearer_token_file: /etc/prometheus/secrets/lodgestatus_metrics_token
+
 
