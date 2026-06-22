@@ -72,8 +72,10 @@ else
 fi
 
 cd "$INSTALL_DIR"
+git checkout "$BRANCH" 2>/dev/null || true
+git pull --ff-only origin "$BRANCH" 2>/dev/null || true
 
-chmod +x setup.sh scripts/*.sh
+chmod +x setup.sh scripts/*.sh install.sh
 
 echo "[install] running setup.sh ${EXTRA_ARGS[*]} -s ${SSH_PORT:-<not set>}"
 exec ./setup.sh "${EXTRA_ARGS[@]}" -s "$SSH_PORT"
