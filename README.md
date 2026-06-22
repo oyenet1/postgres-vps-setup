@@ -40,7 +40,7 @@ sudo ./setup.sh -s 22
 
 ```bash
 sudo ./setup.sh -s 22            # deploy, SSH port 22
-sudo ./setup.sh -s 22 -m         # also deploy monitoring stack
+sudo ./setup.sh -s 22 -m         # also deploy monitoring (Prometheus/Grafana/Loki)
 sudo ./setup.sh --no-start       # render config files only, no deploy
 ```
 
@@ -66,6 +66,150 @@ pgAdmin:
 http://127.0.0.1:5050
 ```
 
+## Connection URLs by use case
+
+### Postgres via PgBouncer (recommended for all apps)
+
+PgBouncer connection pooling is on port `6543`. Just change the database name in the URL.
+
+| Where your app runs | URL |
+|---|---|
+| Same VPS (not Docker) | `postgres://postgres:PASS@127.0.0.1:6543/mydb` |
+| Same VPS (Docker container, bridge network) | `postgres://postgres:PASS@HOST_IP:6543/mydb` |
+| Same Docker Swarm (overlay network) | `postgres://postgres:PASS@pgbouncer:6432/mydb` |
+| External / internet | `postgres://postgres:PASS@YOUR_VPS_IP:6543/mydb` |
+
+Using the same stack with **multiple databases**? PgBouncer routes by database name automatically:
+
+```
+postgres://postgres:PASS@YOUR_VPS_IP:6543/app1
+postgres://postgres:PASS@YOUR_VPS_IP:6543/app2
+postgres://postgres:PASS@YOUR_VPS_IP:6543/app3
+```
+
+Just create each database first (see below).
+
+### Postgres direct (admin tools only)
+
+Skips PgBouncer. Use for migrations, pgAdmin, or admin tasks.
+
+| Where | URL |
+|---|---|
+| Same VPS (not Docker) | `postgres://postgres:PASS@127.0.0.1:5432/mydb` |
+| Same Docker Swarm | `postgres://postgres:PASS@postgres:5432/mydb` |
+
+### Redis
+
+| Where | URL |
+|---|---|
+| Same VPS (not Docker) | `redis://:PASS@127.0.0.1:6379/0` |
+| Same Docker Swarm | `redis://:PASS@redis-proxy:6379/0` |
+| External | `redis://:PASS@YOUR_VPS_IP:6379/0` |
+
+Change `0` to any DB index (`0`–`15`) for separate Redis namespaces:
+
+```
+redis://:PASS@127.0.0.1:6379/0    # default / cache
+redis://:PASS@127.0.0.1:6379/1    # sessions
+redis://:PASS@127.0.0.1:6379/2    # queues
+```
+
+### Quick reference — common frameworks
+
+**Node.js (Knex):**
+```js
+// pools through PgBouncer automatically
+const knex = require('knex')({
+  client: 'pg',
+  connection: 'postgres://postgres:PASS@YOUR_VPS_IP:6543/mydb'
+});
+```
+
+**Node.js (Redis ioredis):**
+```js
+new Redis({ host: 'YOUR_VPS_IP', port: 6379, password: 'PASS', db: 1 });
+```
+
+**Python (Django):**
+```python
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'mydb', 'USER': 'postgres',
+        'PASSWORD': 'PASS', 'HOST': 'YOUR_VPS_IP', 'PORT': '6543',
+    }
+}
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': 'redis://:PASS@YOUR_VPS_IP:6379/1',
+    }
+}
+```
+
+**Ruby on Rails:**
+```yaml
+production:
+  adapter: postgresql
+  database: mydb
+  username: postgres
+  password: PASS
+  host: YOUR_VPS_IP
+  port: 6543
+  pool: 25
+```
+
+**Go (database/sql + pgx):**
+```go
+connStr := "postgres://postgres:PASS@YOUR_VPS_IP:6543/mydb?pool_max_conns=25"
+```
+
+**Inside Docker Compose (same Swarm):**
+```yaml
+services:
+  app:
+    image: myapp
+    environment:
+      DATABASE_URL: postgres://postgres:PASS@pgbouncer:6432/mydb
+      REDIS_URL: redis://:PASS@redis-proxy:6379/0
+    networks:
+      - infra
+networks:
+  infra:
+    external: true
+```
+
+Note: your app container must be on the `infra` overlay network to use service names (`pgbouncer`, `redis-proxy`). For external compose files, declare `networks: { infra: { external: true } }`.
+
+## Monitoring (optional)
+
+Deploy with `-m` flag:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/oyenet1/postgres-vps-setup/master/install.sh | sudo bash -s -- -s 22 -m
+```
+
+Or enable in `.env` and redeploy:
+
+```env
+MONITORING_ENABLED=true
+```
+
+Comes with:
+- **Grafana** (`http://YOUR_VPS_IP:3030`, admin / auto-generated password)
+- **Prometheus** (metrics from postgres, pgbouncer, redis, node)
+- **Loki** (log aggregation from all containers)
+- **Alloy** (log collector)
+- **Alertmanager** (email alerts on disk space, DB down, replica lag)
+
+Pre-built dashboards:
+- **Postgres** — queries, connections, cache hit ratio, replication lag
+- **PgBouncer** — pool usage, client/server wait times
+- **Redis** — memory, hit rate, connected clients, replication
+- **Node** — CPU, RAM, disk, network
+- **Docker** — container resource usage
+- **Loki Logs** — all container logs in one place
+
 ## Create a database
 
 ```bash
@@ -73,10 +217,13 @@ docker run --rm --network infra postgres:17-alpine \
   psql -h postgres -U postgres -c "CREATE DATABASE myapp;"
 ```
 
-Then connect from any app:
+Then connect:
+
 ```
 postgres://postgres:PASSWORD@YOUR_VPS_IP:6543/myapp
 ```
+
+Repeat for each app: `CREATE DATABASE app2;` → `postgres://.../app2`
 
 ## Environment
 
@@ -96,7 +243,7 @@ R2_ACCESS_KEY_ID=...
 R2_SECRET_ACCESS_KEY=...
 R2_BUCKET=...
 
-MONITORING_ENABLED=false        # set true to deploy Prometheus/Grafana/etc
+MONITORING_ENABLED=false        # set true → Prometheus/Grafana/Loki/Alloy/Alertmanager
 ```
 
 After editing, re-render and redeploy:
