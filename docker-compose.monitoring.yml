@@ -62,22 +62,6 @@ services:
       restart_policy:
         condition: any
 
-  cadvisor:
-    image: gcr.io/cadvisor/cadvisor:${CADVISOR_IMAGE_TAG:-v0.49.1}
-    logging: *default-logging
-    privileged: true
-    volumes:
-      - /:/rootfs:ro
-      - /var/run:/var/run:rw
-      - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
-    networks:
-      - infra
-    deploy:
-      mode: global
-      restart_policy:
-        condition: any
-
   loki:
     image: grafana/loki:${LOKI_IMAGE_TAG:-3.0.0}
     logging: *default-logging
@@ -202,11 +186,6 @@ services:
       replicas: 1
       restart_policy:
         condition: any
-
-networks:
-  infra:
-    external: true
-    name: infra
 
 volumes:
   loki_data:
