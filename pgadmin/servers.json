@@ -1,0 +1,22 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "Postgres Direct",
+      "Group": "Servers",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "postgres",
+      "Username": "postgres",
+      "SSLMode": "prefer"
+    },
+    "2": {
+      "Name": "PgBouncer",
+      "Group": "Servers",
+      "Host": "pgbouncer",
+      "Port": 6432,
+      "MaintenanceDB": "postgres",
+      "Username": "postgres",
+      "SSLMode": "prefer"
+    }
+  }
+}

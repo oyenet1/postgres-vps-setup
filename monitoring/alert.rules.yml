@@ -1,75 +1,46 @@
 groups:
-  - name: postgres_alerts
+  - name: database
     interval: 30s
     rules:
-      - alert: PostgresDown
+      - alert: PostgresExporterDown
         expr: up{job="postgres"} == 0
-        for: 1m
+        for: 2m
         labels:
           severity: critical
         annotations:
-          summary: "PostgreSQL is down"
-          description: "PostgreSQL instance is not responding"
+          summary: PostgreSQL exporter is down
 
       - alert: PostgresHighConnections
-        expr: pg_stat_activity_count > 80
+        expr: sum(pg_stat_activity_count) > 240
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "PostgreSQL high connection count"
-          description: "PostgreSQL has {{ $value }} active connections"
+          summary: PostgreSQL connection count is high
 
-  - name: pgbouncer_alerts
-    interval: 30s
-    rules:
-      - alert: PgBouncerDown
-        expr: up{job="pgbouncer"} == 0
-        for: 1m
+      - alert: RedisExporterDown
+        expr: up{job="redis"} == 0
+        for: 2m
         labels:
           severity: critical
         annotations:
-          summary: "PgBouncer is down"
-          description: "PgBouncer instance is not responding"
+          summary: Redis exporter is down
 
-      - alert: PgBouncerHighConnections
-        expr: pgbouncer_cl_connections > 800
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "PgBouncer high client connections"
-          description: "PgBouncer has {{ $value }} client connections"
-
-  - name: backup_alerts
-    interval: 1h
-    rules:
-      - alert: BackupFailed
-        expr: backup_last_run_status == 0
-        for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Backup failed"
-          description: "Database backup has failed"
-
-      - alert: BackupMissing
-        expr: time() - backup_last_success_timestamp > 86400
-        for: 1h
-        labels:
-          severity: warning
-        annotations:
-          summary: "Backup missing"
-          description: "No successful backup in the last 24 hours"
-
-  - name: container_alerts
+  - name: host
     interval: 30s
     rules:
+      - alert: HostDiskAlmostFull
+        expr: (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) < 0.10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Host filesystem has less than 10 percent free space
+
       - alert: ContainerDown
-        expr: container_last_status == "exited"
-        for: 1m
+        expr: time() - container_last_seen{name!=""} > 60
+        for: 2m
         labels:
-          severity: critical
+          severity: warning
         annotations:
-          summary: "Container is down"
-          description: "{{ $labels.container_name }} has stopped"
+          summary: A container disappeared from cAdvisor metrics
