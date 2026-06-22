@@ -1,0 +1,220 @@
+# Reference: Redis HA cluster for infrastructure stack
+# Copy these services into docker-compose.yml — network: infrastructure
+# Apps connect to: redis://:${REDIS_PASSWORD}@redis-proxy:6379
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  redis-master:
+    image: redis:7-alpine
+    logging: *default-logging
+    command: >
+      redis-server
+      --appendonly yes
+      --requirepass ${REDIS_PASSWORD}
+      --masterauth ${REDIS_PASSWORD}
+    volumes:
+      - redis_master_data:/data
+    ports:
+      - "127.0.0.1:${REDIS_MASTER_PORT:-6379}:6379"
+    networks:
+      infrastructure:
+        aliases:
+          - redis-master
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "redis-cli",
+          "-a",
+          "${REDIS_PASSWORD}",
+          "--no-auth-warning",
+          "ping",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+      placement:
+        constraints:
+          - node.role == manager
+
+  redis-replica:
+    image: redis:7-alpine
+    logging: *default-logging
+    command: >
+      redis-server
+      --replicaof redis-master 6379
+      --requirepass ${REDIS_PASSWORD}
+      --masterauth ${REDIS_PASSWORD}
+      --replica-read-only yes
+      --appendonly yes
+    volumes:
+      - redis_replica_data:/data
+    networks:
+      infrastructure:
+        aliases:
+          - redis-replica
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "redis-cli",
+          "-a",
+          "${REDIS_PASSWORD}",
+          "--no-auth-warning",
+          "ping",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+
+  redis-sentinel:
+    image: redis:7-alpine
+    logging: *default-logging
+    command:
+      - sh
+      - -ec
+      - |
+        until getent hosts redis-master >/dev/null 2>&1; do
+          echo "waiting for redis-master DNS..."
+          sleep 1
+        done
+        until redis-cli -h redis-master -a "${REDIS_PASSWORD}" --no-auth-warning ping | grep -q PONG; do
+          echo "waiting for redis-master to accept connections..."
+          sleep 1
+        done
+        cat > /tmp/sentinel.conf << SENTINELEOF
+        port 26379
+        bind 0.0.0.0
+        protected-mode no
+        sentinel resolve-hostnames yes
+        sentinel announce-hostnames yes
+        sentinel monitor ${REDIS_SENTINEL_MASTER_NAME:-infrastructure-master} redis-master 6379 2
+        sentinel auth-pass ${REDIS_SENTINEL_MASTER_NAME:-infrastructure-master} ${REDIS_PASSWORD}
+        sentinel down-after-milliseconds ${REDIS_SENTINEL_MASTER_NAME:-infrastructure-master} 5000
+        sentinel failover-timeout ${REDIS_SENTINEL_MASTER_NAME:-infrastructure-master} 60000
+        sentinel parallel-syncs ${REDIS_SENTINEL_MASTER_NAME:-infrastructure-master} 1
+        SENTINELEOF
+        exec redis-server /tmp/sentinel.conf --sentinel
+    ports:
+      - "127.0.0.1:${REDIS_SENTINEL_PORT:-26379}:26379"
+    networks:
+      - infrastructure
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "redis-cli -p 26379 SENTINEL master ${REDIS_SENTINEL_MASTER_NAME:-infrastructure-master} | grep -q 'name' || exit 1"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    deploy:
+      replicas: 3
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+
+  redis-proxy:
+    image: haproxy:2.9-alpine
+    logging: *default-logging
+    command:
+      - sh
+      - -ec
+      - |
+        cat > /tmp/haproxy.cfg << HAPROXYEOF
+        global
+            log stdout format raw local0
+            maxconn 50000
+
+        defaults
+            mode tcp
+            log global
+            timeout connect 5s
+            timeout client 60s
+            timeout server 60s
+            option tcplog
+
+        resolvers docker
+            nameserver dns 127.0.0.11:53
+            resolve_retries 3
+            timeout resolve 1s
+            timeout retry 1s
+            hold valid 2s
+
+        frontend redis_front
+            bind *:6379
+            default_backend redis_master_backend
+
+        backend redis_master_backend
+            option tcp-check
+            tcp-check send "AUTH ${REDIS_PASSWORD}\r\n"
+            tcp-check expect string +OK
+            tcp-check send "PING\r\n"
+            tcp-check expect string +PONG
+            tcp-check send "INFO replication\r\n"
+            tcp-check expect string role:master
+            tcp-check send "QUIT\r\n"
+            tcp-check expect string +OK
+            server redis-master redis-master:6379 check inter 1000 rise 2 fall 2 resolvers docker resolve-prefer ipv4
+            server redis-replica redis-replica:6379 check inter 1000 rise 2 fall 2 resolvers docker resolve-prefer ipv4
+        HAPROXYEOF
+        exec haproxy -W -db -f /tmp/haproxy.cfg
+    ports:
+      - "127.0.0.1:${REDIS_PROXY_PORT:-6380}:6379"
+    networks:
+      infrastructure:
+        aliases:
+          - redis-proxy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 6379 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+
+  redis_exporter:
+    image: oliver006/redis_exporter:v1.63.0
+    environment:
+      REDIS_ADDR: redis://redis-proxy:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    ports:
+      - "${REDIS_EXPORTER_PORT:-9121}:9121"
+    networks:
+      - infrastructure
+    deploy:
+      replicas: 1
+
+networks:
+  infrastructure:
+    name: infrastructure
+    driver: overlay
+    attachable: true
+
+volumes:
+  redis_master_data:
+  redis_replica_data:

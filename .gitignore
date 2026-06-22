@@ -9,7 +9,12 @@ pgbouncer_ssl/*.crt
 pgbouncer_ssl/*.key
 userlist.txt
 pgbouncer.ini
+pgbouncer/userlist.generated.txt
+redis/haproxy.generated.cfg
+monitoring/alertmanager.generated.yml
+config/rclone/rclone.generated.conf
 backups/*.sql.gz
+backups/*/
 
 # Docker volumes
 pgadmin_data/

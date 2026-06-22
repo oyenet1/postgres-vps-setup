@@ -1,800 +1,166 @@
-# PostgreSQL + PgBouncer Stack Deployment
+# Infra
 
-Docker-based PostgreSQL with PgBouncer connection pooling, pgAdmin, and optional automated backups to Google Drive.
+Single-VPS Docker Swarm stack for shared application infrastructure:
 
----
+- PostgreSQL 17 with PostGIS, pgvector, pg_cron
+- PgBouncer on public host port `6543`
+- pgAdmin
+- Redis master, replica, Sentinel (3 nodes), and HAProxy write proxy
+- Individual database backups to local disk + optional Cloudflare R2
+- Optional Prometheus, Grafana, Loki, Alloy, Alertmanager, and exporters
 
-## Why This Project?
+## Prerequisites
 
-Setting up a production-ready PostgreSQL stack is harder than it should be. You need to:
-
-- **Configure connection pooling** - Without PgBouncer, each client connection opens a new database connection, exhausting resources quickly
-- **Set up automated backups** - Manual backups don't scale and get forgotten
-- **Secure your database** - SSL, firewall rules, non-standard ports - it's easy to miss something
-- **Manage multiple environments** - Development, staging, production all need slightly different configs
-- **Connect to Cloudflare Hyperdrive** - Getting PostgreSQL to work with Cloudflare Workers requires specific configuration
-
-This project solves all of that in one idempotent, repeatable script.
-
-### Problems We Solve
-
-| Problem | Solution |
-|---------|----------|
-| PostgreSQL connection exhaustion | PgBouncer with transaction-mode pooling |
-| No automated backups | Local backups with optional Google Drive upload |
-| Security vulnerabilities | UFW firewall, SSL/TLS, non-standard ports, no hardcoded secrets |
-| Complex setup | One command deployment with interactive prompts for secrets |
-| Cloudflare Hyperdrive integration | Pre-configured PgBouncer with SSL and transaction pooling |
-| Environment management | .env-based configuration, generated passwords, idempotent scripts |
-
----
-
-## Quick Start
-
-**One-line command (copy and paste):**
+Build and push the backup image (or let setup.sh build it locally):
 
 ```bash
-git clone https://github.com/oyenet1/postgres-vps-setup.git && cd postgres-vps-setup && chmod +x setup.sh && sudo ./setup.sh
+bash scripts/build-backup-image.sh
 ```
 
-Or step by step:
+For multi-node Swarm clusters push to a registry and set `INFRA_BACKUP_IMAGE`.
+
+## Install
 
 ```bash
-git clone https://github.com/oyenet1/postgres-vps-setup.git
-cd postgres-vps-setup
-chmod +x setup.sh
-sudo ./setup.sh
-```
-
-**Clone a specific branch:**
-```bash
-git clone -b <branch-name> https://github.com/oyenet1/postgres-vps-setup.git
-cd postgres-vps-setup
-chmod +x setup.sh
-sudo ./setup.sh
-```
-
-The script will prompt you step-by-step for any missing values.
-
-### Command Options
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `-d <dir>` | Target installation directory | Current script directory |
-| `-s <port>` | SSH port for firewall | None (skips SSH rule) |
-
-**Three ways to run:**
-
-```bash
-# 1. Default: runs in current script directory
-sudo ./setup.sh
-
-# 2. WITH custom SSH port - adds firewall rule for that port
-sudo ./setup.sh -s 4422
-
-# 3. WITH default SSH port 22 - adds firewall rule for port 22
 sudo ./setup.sh -s 22
-
-# 4. WITH custom directory
-sudo ./setup.sh -d /opt/postgres -s 4422
 ```
 
-> **Note:** If you omit `-s`, you must manually configure SSH access through your cloud provider's firewall/security groups.
+Use your real SSH port instead of `22`. The script will:
 
-### What the Script Does
+- install Docker if missing
+- initialize Docker Swarm if not active
+- create or update `.env`
+- generate strong passwords for placeholder values
+- render local runtime config files
+- build the backup image
+- open the PgBouncer firewall port
+- deploy the stack
+- configure PgBouncer auth
+- verify PgBouncer and Redis are reachable
 
-1. Installs Docker & Docker Compose V2 (if missing)
-2. Configures UFW firewall (SSH on your specified port, PgBouncer on 6543)
-3. Generates SSL certificates
-4. Creates docker-compose.yml and config files
-5. Sets up PostgreSQL + PgBouncer + pgAdmin containers
+Enable monitoring during install:
 
-If any environment variables are missing or are placeholders, the script will ask you step-by-step.
-
-## Services
-
-| Service | Port | Description |
-|---------|------|-------------|
-| PostgreSQL | 5432 | Database (internal only, not exposed) |
-| PgBouncer | 6543 | Connection pooling (globally accessible) |
-| pgAdmin | 5050 | Database administration |
-| Prometheus | 9090 | Metrics collection |
-| Grafana | 3030 | Dashboards and visualization |
-| Alertmanager | 9093 | Alert routing and notification |
-
-## Monitoring Setup (Optional)
-
-During setup, you'll be asked:
-```
-Enable monitoring (Prometheus + Grafana)? [y/N]:
+```bash
+sudo ./setup.sh -s 22 -m
 ```
 
-If you choose yes, you'll also configure:
-- Grafana admin password
-- Alert email address (optional)
-- SMTP settings for email alerts (optional)
+Render files without starting containers:
 
-### Monitoring Environment Variables
+```bash
+sudo ./setup.sh --no-start
+```
+
+## Environment
 
 ```env
-# Enable/Disable Monitoring
-MONITORING_ENABLED=true
-GRAFANA_USER=admin
-GRAFANA_PASSWORD=admin123
-
-# Alert Configuration (optional)
-ALERT_EMAIL_TO=alerts@example.com
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=your-email@gmail.com
-SMTP_PASSWORD=your-app-password
-SMTP_FROM=alerts@example.com
-```
-
-### Accessing Monitoring Services
-
-| Service | URL | Credentials |
-|---------|-----|-------------|
-| Prometheus | http://your-server:9090 | No auth (read-only) |
-| Grafana | http://your-server:3030 | admin / (your set password) |
-| Alertmanager | http://your-server:9093 | No auth (read-only) |
-
-### Gmail SMTP Setup (for alerts)
-
-To send alerts via Gmail, you need an **App Password**:
-
-1. Go to: https://myaccount.google.com/apppasswords
-2. Create a new App Password (select "Mail" and "Other app")
-3. Copy the 16-character password
-4. Use this as your `SMTP_PASSWORD` (not your regular Gmail password)
-
-### Alerts Sent via Email
-
-After each backup, an email report is sent with:
-- Backup status (success/failed)
-- Backup file name and size
-- Upload status to Google Drive
-- All service status (PostgreSQL, PgBouncer)
-- Timestamp and duration
-
-Critical alerts (service down, backup failed) are also sent via SMTP.
-
-### Alert Rules Configured
-
-| Alert | Condition | Severity |
-|-------|-----------|----------|
-| PostgresDown | PostgreSQL not responding | Critical |
-| PostgresHighConnections | >80 connections | Warning |
-| PgBouncerDown | PgBouncer not responding | Critical |
-| PgBouncerHighConnections | >800 client connections | Warning |
-| BackupFailed | Backup job failed | Critical |
-| BackupMissing | No backup in 24 hours | Warning |
-
-### Monitoring Files Location
-
-All monitoring configs are in the `monitoring/` folder:
-```
-monitoring/
-├── prometheus.yml      # Prometheus scrape config
-├── alert.rules.yml     # Alert rules
-└── alertmanager.yml    # Alertmanager SMTP config
-```
-
-## Example .env File (After Deployment)
-
-After running `setup.sh`, your `.env` will look like this:
-
-```env
-# PostgreSQL Configuration
-POSTGRES_VERSION=17
-POSTGRES_DB=mydb
-POSTGRES_USER=pguser
-POSTGRES_PASSWORD=Xk9#mP2$nL5!qR8%vT4@wY7&jK3*hB6  (random 32-char password)
-POSTGRES_PORT=5432
-
-# PgBouncer Configuration
-PGBOUNCER_PORT=6543
-PGBOUNCER_POOL_SIZE=20
-PGBOUNCER_MAX_CLIENT_CONN=1000
-PGBOUNCER_SERVER_LIFETIME=3600
-PGBOUNCER_SERVER_IDLE_TIMEOUT=600
-
-# pgAdmin Configuration
+POSTGRES_DB=postgres
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=change_me_postgres_password
 PGADMIN_EMAIL=admin@example.com
-PGADMIN_PASSWORD=Xk9#mP2$nL5!qR8%vT4@wY7&jK3*hB6
+PGADMIN_PASSWORD=change_me_pgadmin_password
+REDIS_PASSWORD=change_me_redis_password
+GRAFANA_PASSWORD=change_me_grafana_password
 
-# Backup Configuration
-BACKUP_SCHEDULE="0 */12 * * *"
-GOOGLE_DRIVE_REMOTE_NAME=gdrive
-GOOGLE_DRIVE_FOLDER=postgres_backups
-GOOGLE_DRIVE_TOKEN={"access_token":"..."}
-GOOGLE_DRIVE_TEAM_DRIVE_ID=
-RCLONE_CONFIG_PATH=/config/rclone/rclone.conf
-MAX_BACKUPS=3
+PGBOUNCER_PORT=6543
+PGBOUNCER_BIND_ADDR=0.0.0.0
 
-# Monitoring
-MONITORING_ENABLED=true
-GRAFANA_USER=admin
-GRAFANA_PASSWORD=admin123
-
-# Alert Configuration
-ALERT_EMAIL_TO=alerts@example.com
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=your-email@gmail.com
-SMTP_PASSWORD=your-app-password
-SMTP_FROM=alerts@example.com
+R2_BACKUP_ENABLED=true
+R2_ACCOUNT_ID=your_cloudflare_account_id
+R2_ACCESS_KEY_ID=your_r2_access_key_id
+R2_SECRET_ACCESS_KEY=your_r2_secret_access_key
+R2_BUCKET=your_bucket_name
+R2_PREFIX=infra/
 ```
 
-## Configuration
+`setup.sh` generates passwords automatically when it sees `change_me_*` placeholders.
 
-### Changing Backup Schedule
+## Ports
 
-Edit `templates/backup.cron` to change when backups run:
+| Service | Default host binding | Purpose |
+| --- | --- | --- |
+| PgBouncer | `0.0.0.0:6543` | Main external PostgreSQL endpoint for apps |
+| PostgreSQL | `127.0.0.1:5432` | Local direct admin access only |
+| pgAdmin | `127.0.0.1:5050` | Browser admin UI |
+| Redis proxy | `127.0.0.1:6379` | Local Redis endpoint |
+| Prometheus | `127.0.0.1:9090` | Metrics, monitoring only |
+| Grafana | `127.0.0.1:3030` | Dashboards, monitoring only |
+| Alertmanager | `127.0.0.1:9093` | Alerts, monitoring only |
+| Loki | `127.0.0.1:3100` | Logs, monitoring only |
+
+## Connection Strings
+
+External app through PgBouncer:
+
+```text
+postgres://POSTGRES_USER:POSTGRES_PASSWORD@YOUR_SERVER_IP:6543/DATABASE_NAME
+```
+
+Local Redis through HAProxy:
+
+```text
+redis://:REDIS_PASSWORD@127.0.0.1:6379
+```
+
+## Backups
+
+Each run creates one timestamped local folder:
+
+```text
+backups/
+  20260621_235900/
+    postgres.sql.gz
+    myapp.sql.gz
+    analytics.sql.gz
+```
+
+Run a backup immediately:
 
 ```bash
-# Format: minute hour day month weekday command
-# Examples:
-0 */12 * * *    # Every 12 hours
-0 2 * * *        # Daily at 2 AM
-0 */6 * * *      # Every 6 hours
-0 0 * * 0        # Weekly on Sunday at midnight
+docker exec $(docker ps --filter name=infra_backup --format='{{.Names}}' | head -1) /bin/sh /scripts/backup.sh
 ```
 
-After editing, restart the backup container:
-```bash
-docker compose restart backup
-```
-
-### Changing Backup Retention (Max Backups)
-
-By default, only the last 3 backups are kept on Google Drive (oldest are deleted). To change this:
-
-1. Edit `.env`:
-```
-MAX_BACKUPS=5
-```
-
-2. Restart backup container:
-```bash
-docker compose restart backup
-```
-
-This applies to both Google Drive and local backups (keeping MAX_BACKUPS locally too).
-
-### Creating New Databases
-
-#### Via pgAdmin (GUI)
-1. Go to `http://your-server-ip:5050`
-2. Login with your `PGADMIN_EMAIL` and `PGADMIN_PASSWORD`
-3. Right-click **Databases** → **Create** → **Database...**
-4. Enter database name and click **Save**
-
-#### Via SQL
-1. In pgAdmin, click **Query Tool** or connect via terminal:
-```bash
-docker exec -it postgres psql -U pguser -d postgres -c "CREATE DATABASE newdbname;"
-```
-
-#### Via terminal directly
-```bash
-docker exec -it postgres psql -U pguser -d postgres -c "CREATE DATABASE mynewdb;"
-```
-
-### Adding New Databases to PgBouncer
-
-By default, PgBouncer only knows about the primary database. To add additional databases for connection pooling:
-
-1. Edit `pgbouncer.ini` in your deployment directory:
-```ini
-[databases]
-postgres = host=postgres port=5432 dbname=postgres
-myappdb = host=postgres port=5432 dbname=myappdb
-analytics = host=postgres port=5432 dbname=analytics
-```
-
-2. Update the userlist if using different credentials:
-```ini
-[databases]
-postgres = host=postgres port=5432 dbname=postgres user=pguser
-myappdb = host=postgres port=5432 dbname=myappdb user=appuser
-```
-
-3. Restart PgBouncer:
-```bash
-docker compose restart pgbouncer
-```
-
-4. Connect via PgBouncer on port 6543:
-```
-postgresql://pguser:password@localhost:6543/myappdb
-```
-
-**Note:** For dynamic database lookup without editing config, you can use `auth_query` in PgBouncer - this allows any database to be accessed through PgBouncer without pre-configuration.
-
-### Volume Persistence (Data Safety)
-
-All persistent data is stored in Docker volumes - your data survives container restarts and redeployments:
-
-| Volume | Location | What's Stored |
-|--------|----------|---------------|
-| `postgres_data` | `./postgres_data/` | PostgreSQL database files |
-| `pgadmin_data` | Docker named volume | pgAdmin settings and configs |
-| `backups` | `./backups/` | Local backup files (before upload) |
-| `pgbouncer_ssl` | `./pgbouncer_ssl/` | SSL certificates and keys |
-
-**Important:** Never delete `postgres_data/` - it contains your database!
-
-### If Files Change (Watch Out)
-
-When changing config files, be aware:
+Restore one database:
 
 ```bash
-# SSL certificates - if regenerated, clients need new certificates
-# Always backup old certs before regeneration
-
-# .env changes - containers must be recreated to take effect
-docker compose down && docker compose up -d
-
-# pgbouncer.ini - changes require restart
-docker compose restart pgbouncer
-
-# userlist.txt - if passwords change, update here too
-# The hashed password in userlist.txt must match POSTGRES_PASSWORD in .env
+gunzip -c backups/20260621_235900/myapp.sql.gz | docker run --rm -i --network infra postgres:17-alpine psql -h postgres -U "$POSTGRES_USER" -d myapp
 ```
 
-**Idempotent redeploy (safe to run multiple times):**
-```bash
-docker compose down && docker compose up -d
-```
+## Monitoring
 
-This will NOT destroy your data - only containers are recreated, volumes persist.
-
-### Making Changes and Redeploying
-
-The setup is idempotent - you can make changes and redeploy safely:
+Deploy the monitoring stack:
 
 ```bash
-# 1. Edit configuration files (.env, docker-compose.yml, etc.)
-nano .env
-
-# 2. Stop containers
-docker compose down
-
-# 3. Start containers with new config
-docker compose up -d
-
-# Or restart specific services
-docker compose restart pgbouncer
-docker compose restart postgres
+MONITORING_ENABLED=true bash scripts/deploy.sh
 ```
 
-**Common changes:**
-
-| What to Change | File to Edit | Redeploy Command |
-|----------------|--------------|-------------------|
-| Passwords, DB name | `.env` | `docker compose down && docker compose up -d` |
-| Backup schedule | `templates/backup.cron` | `docker compose restart backup` |
-| PgBouncer settings | `pgbouncer.ini` | `docker compose restart pgbouncer` |
-| New environment vars | `.env` then | `docker compose down && docker compose up -d` |
-
-### Changing PgBouncer Settings
-
-Edit `pgbouncer.ini` for connection pooling tuning:
-
-```ini
-[pgbouncer]
-listen_addr = 127.0.0.1        # Keep localhost only for security
-listen_port = 6543
-max_client_conn = 100           # Max simultaneous client connections
-default_pool_size = 20          # Connections per database
-server_lifetime = 3600          # Server connection lifetime (seconds)
-server_idle_timeout = 600       # Idle server timeout (seconds)
-pool_mode = transaction         # Transaction-based pooling
-```
-
-After editing, restart PgBouncer:
-```bash
-docker compose restart pgbouncer
-```
-
-### Changing PgBouncer Port
-
-If you need to change the PgBouncer port (default 6543):
-
-1. Edit `docker-compose.yml`:
-   ```yaml
-   pgbouncer:
-     ports:
-       - "6544:6543"  # Change host port from 6543 to 6544
-   ```
-
-2. Update `.env`:
-   ```
-   PGBOUNCER_PORT=6544
-   ```
-
-3. Restart:
-   ```bash
-   docker compose down
-   docker compose up -d
-   ```
-
-### Changing Backup Retention
-
-Edit `templates/backup.sh` to keep more/fewer local backups:
+Or manually:
 
 ```bash
-# Keep only 3 newest backups (change +4 to your preference)
-cd "${BACKUP_DIR}" && ls -t backup_*.sql.gz | tail -n +4 | xargs -r rm -f
-
-# Or use age-based cleanup (e.g., delete backups older than 7 days):
-find "${BACKUP_DIR}" -name "backup_*.sql.gz" -mtime +7 -delete
+docker stack deploy -c docker-compose.yml -c docker-compose.monitoring.yml infra
 ```
 
-### PgBouncer Security
+## Operations
 
-PgBouncer listens on `0.0.0.0:6543` (globally accessible). The UFW firewall restricts access so only connections from known sources can reach it.
-
-For Hyperdrive, a firewall rule is added to allow only Cloudflare IPs (`104.16.0.0/12`) to access PgBouncer.
-
-To restrict PgBouncer to localhost-only (not recommended if using Hyperdrive):
-```yaml
-# In docker-compose.yml, change:
-LISTEN_ADDR: "127.0.0.1"  # Listen on localhost only
-ports:
-  - "127.0.0.1:6543:5432"  # Only accessible via 127.0.0.1
-```
-
-## Accessing pgAdmin
-
-pgAdmin is pre-configured and ready to use once the stack is running.
-
-### 1. Open pgAdmin
-
-Navigate to: `http://your-server-ip:5050`
-
-### 2. Login
-
-Use the credentials you set in `.env`:
-
-- **Email**: `PGADMIN_EMAIL` (e.g., `admin@example.com`)
-- **Password**: `PGADMIN_PASSWORD`
-
-### 3. Add Your PostgreSQL Server
-
-1. Click **"Add New Server"** in the dashboard
-2. **General tab**:
-   - Name: `PostgreSQL` (or any name you prefer)
-3. **Connection tab**:
-   - Host name/address: `postgres` (Docker internal hostname)
-   - Port: `5432`
-   - Database: `postgres`
-   - Username: `PGADMIN_USER` from `.env` (e.g., `pguser`)
-   - Password: `POSTGRES_PASSWORD` from `.env`
-4. Click **"Save"**
-
-### 4. View Your Database
-
-Once connected:
-- Expand **Servers** → **PostgreSQL** → **Databases** → **postgres**
-- Expand **Schemas** → **Tables** to see your tables
-
-### 5. Create a New Database
-
-1. Right-click **Databases** → **Create** → **Database...**
-2. Enter the database name (e.g., `mynewdb`)
-3. Click **Save**
-
-Or via SQL query tool:
-```sql
-CREATE DATABASE mynewdb;
-```
-
-### 6. Create a New User
-
-```sql
-CREATE USER newuser WITH PASSWORD 'your_password';
-GRANT ALL PRIVILEGES ON DATABASE mynewdb TO newuser;
-```
-
-## Google Drive Backup Setup (Optional)
-
-To enable Google Drive backups, run this script on your **local computer** (with browser access):
+Show stack:
 
 ```bash
-# Works on Linux, Mac, Git Bash (Windows)
-curl -fsSL https://raw.githubusercontent.com/oyenet1/postgres-vps-setup/main/rclone-token.sh | bash
-
-# Alternative if curl not available
-wget -qO- https://raw.githubusercontent.com/oyenet1/postgres-vps-setup/main/rclone-token.sh | bash
+docker stack ps infra
 ```
 
-Or copy and run this script manually:
+View PgBouncer logs:
 
 ```bash
-#!/bin/bash
-set -e
-
-echo "============================================"
-echo "  rclone Google Drive Token Generator"
-echo "============================================"
-echo ""
-echo "Run this on your LOCAL computer (with browser)"
-echo ""
-
-INSTALL_RCLONE=""
-
-if command -v rclone &> /dev/null; then
-    echo "[OK] rclone is already installed"
-else
-    echo "[INFO] rclone not found, installing..."
-
-    if command -v curl &> /dev/null; then
-        DOWNLOADER="curl -fsSL"
-    elif command -v wget &> /dev/null; then
-        DOWNLOADER="wget -qO-"
-    else
-        echo "[ERROR] Neither curl nor wget found. Please install one of them first."
-        exit 1
-    fi
-
-    if command -v uname &> /dev/null; then
-        OS=$(uname -s)
-        if [[ "$OS" == "Darwin" ]]; then
-            echo "[INFO] Detected macOS - installing rclone via brew..."
-            if command -v brew &> /dev/null; then
-                brew install rclone
-            else
-                echo "[ERROR] Homebrew not found. Install from: https://brew.sh"
-                exit 1
-            fi
-        elif [[ "$OS" == "Linux" ]]; then
-            eval "${DOWNLOADER} https://rclone.org/install.sh | sh"
-        else
-            eval "${DOWNLOADER} https://rclone.org/install.sh | sh"
-        fi
-    else
-        eval "${DOWNLOADER} https://rclone.org/install.sh | sh"
-    fi
-fi
-
-if ! command -v rclone &> /dev/null; then
-    echo "[ERROR] rclone installation failed"
-    exit 1
-fi
-
-echo ""
-echo "[INFO] Starting rclone configuration..."
-echo "Follow the prompts:"
-echo ""
-echo "  1. Choose 'n' (New remote)"
-echo "  2. Enter name: gdrive"
-echo "  3. Storage: choose 24 (Google Drive)"
-echo "  4. Client ID/Secret: leave blank (press Enter)"
-echo "  5. Scope: choose 1 (Full access)"
-echo "  6. Team Drive: choose 'n'"
-echo "  7. Auto config: choose n (headless)"
-echo "  8. A URL will appear - paste it in your browser"
-echo "  9. Authorize and paste the code back here"
-echo ""
-rclone config
-
-echo ""
-echo "[INFO] Extracting token..."
-
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    RCLONE_CONFIG="${HOME}/Library/Application Support/rclone/rclone.conf"
-    [[ ! -f "${RCLONE_CONFIG}" ]] && RCLONE_CONFIG="${HOME}/.config/rclone/rclone.conf"
-else
-    RCLONE_CONFIG="${HOME}/.config/rclone/rclone.conf"
-    [[ ! -f "${RCLONE_CONFIG}" ]] && RCLONE_CONFIG="${HOME}/.rclone.conf"
-fi
-
-TOKEN=$(grep -A5 "\[gdrive\]" "${RCLONE_CONFIG}" 2>/dev/null | grep "token" | sed 's/token = //' | head -1)
-
-if [[ -z "${TOKEN}" ]]; then
-    echo "[ERROR] Could not extract token from config"
-    echo "Please manually copy the token from: ${RCLONE_CONFIG}"
-    echo "Look for 'token = ' in the [gdrive] section"
-    exit 1
-fi
-
-echo ""
-echo "============================================"
-echo "  COPY THIS TOKEN BELOW"
-echo "============================================"
-echo ""
-echo "${TOKEN}"
-echo ""
-echo "============================================"
-echo "  USAGE INSTRUCTIONS"
-echo "============================================"
-echo ""
-echo "  1. Copy the token above"
-echo "  2. On your VPS, edit the .env file:"
-echo "     nano /path/to/your/.env"
-echo "  3. Update this line with your token:"
-echo "     GOOGLE_DRIVE_TOKEN=<paste_token_here>"
-echo ""
+docker service logs infra_pgbouncer -f
 ```
 
-After running the script, copy the output token and add it to your VPS's `.env` file:
+Restart a service after config changes:
 
 ```bash
-GOOGLE_DRIVE_TOKEN=<paste_your_token_here>
+docker service update --force infra_pgbouncer
 ```
 
-## Security Checklist
-
-- [ ] SSH on non-standard port (4422)
-- [ ] UFW deny-by-default policy
-- [ ] Only ports 4422 (SSH) and 6543 (PgBouncer) exposed
-- [ ] SSL/TLS encryption for PgBouncer
-- [ ] Strong random passwords in `.env`
-- [ ] No hardcoded credentials
-- [ ] Backup encryption (gzip only; consider gpg for sensitive data)
-
-## File Structure
-
-```
-dbsetup/
-├── setup.sh              # Main PostgreSQL + PgBouncer setup
-├── rclone-token.sh       # Generate Google Drive token (run locally)
-├── docker-compose.yml
-├── .env.example
-├── README.md
-├── templates/
-│   ├── pgbouncer.ini
-│   └── backup.sh
-├── config/
-│   └── rclone/           # (optional) rclone config for cloud backup
-└── ssl/                   (generated)
-    ├── server.crt
-    └── server.key
-```
-
-## Useful Commands
+Remove the stack:
 
 ```bash
-docker compose logs -f postgres
-docker compose logs -f pgbouncer
-docker compose ps
-docker compose restart pgbouncer
+docker stack rm infra
 ```
-
-## Cloudflare Hyperdrive (Optional)
-
-Cloudflare Hyperdrive lets your Cloudflare Workers connect to your PostgreSQL database with automatic caching, connection pooling, and reduced latency worldwide. This setup uses PgBouncer as the target (not direct PostgreSQL), which provides additional connection pooling benefits.
-
-### Benefits of Hyperdrive
-
-| Benefit | Description |
-|---------|-------------|
-| **Global Performance** | Cache queries at Cloudflare's 300+ data centers worldwide |
-| **Connection Pooling** | Hyperdrive manages a pool of connections to your database, reducing connection overhead |
-| **Reduced Latency** | Workers connect to the nearest Cloudflare edge, which then connects to your VPS through Hyperdrive |
-| **SSL/TLS by Default** | All connections are encrypted automatically |
-| **No Cold Starts** | Hyperdrive keeps connections warm |
-| **Cost Savings** | Reduced database compute since connection pooling is handled by both PgBouncer and Hyperdrive |
-| **Security** | Only Cloudflare IPs (104.16.0.0/12) can reach your PgBouncer port |
-
-### Architecture
-
-```
-Cloudflare Workers → Hyperdrive → PgBouncer (6543) → PostgreSQL (5432)
-                                        ↓
-                              Connection Pooling
-                              (transaction mode)
-```
-
-**PgBouncer is globally accessible** (0.0.0.0:6543) to allow Hyperdrive connections. The UFW firewall ensures only Cloudflare IPs (`104.16.0.0/12`) can reach it when Hyperdrive is enabled.
-
-**Why connect through PgBouncer?**
-- PgBouncer provides transaction-mode connection pooling (more efficient than session-mode)
-- Reduces load on PostgreSQL by reusing connections
-- Hyperdrive connects to PgBouncer's port 6543, not directly to PostgreSQL's 5432
-
-### During Setup
-
-When running `setup.sh`, you'll be prompted:
-```
-Setup Cloudflare Hyperdrive? [y/N]:
-```
-
-If you choose yes, the script will:
-1. Auto-install Node.js 22 (if missing)
-2. Install Wrangler CLI
-3. Open browser for Cloudflare authentication (`wrangler login`)
-4. Get your server's public IP automatically
-5. Create Hyperdrive binding connected to PgBouncer
-6. Configure PgBouncer to listen on all interfaces (`0.0.0.0:6543`)
-7. Open firewall for Cloudflare IPs (`104.16.0.0/12`)
-
-### Manual Setup (if not using automated setup)
-
-```bash
-# 1. Install Wrangler
-npm install -g wrangler@latest
-
-# 2. Login to Cloudflare
-wrangler login
-
-# 3. Create Hyperdrive (pointing to PgBouncer port 6543)
-wrangler hyperdrive create postgres-hd \
-  --connection-string="postgres://pguser:your_password@YOUR_PUBLIC_IP:6543/mydb?sslmode=require"
-
-# 4. Copy the Hyperdrive ID from the output
-```
-
-### Add to wrangler.jsonc
-
-```jsonc
-{
-  "hyperdrive": [{
-    "binding": "HYPERDRIVE",
-    "id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-  }]
-}
-```
-
-### Use in Worker Code
-
-```typescript
-export interface Env {
-  HYPERDRIVE: Hyperdrive;
-}
-
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const client = await env.HYPERDRIVE.getClient();
-
-    // Query through Hyperdrive (connected to PgBouncer)
-    const result = await client.queryArray('SELECT NOW()');
-    await client.end();
-
-    return new Response(JSON.stringify(result.rows));
-  }
-};
-```
-
-### Environment Variables Added
-
-After Hyperdrive setup, your `.env` will include:
-```env
-HYPERDRIVE_ENABLED=true
-HYPERDRIVE_NAME=postgres-hd
-HYPERDRIVE_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-HYPERDRIVE_CONNECTION_STRING=postgres://user:pass@PUBLIC_IP:6543/db?sslmode=require
-```
-
-### Firewall Changes for Hyperdrive
-
-When Hyperdrive is enabled:
-- PgBouncer changes from `LISTEN_ADDR: "127.0.0.1"` to `LISTEN_ADDR: "0.0.0.0"`
-- UFW rule added: `ufw allow from 104.16.0.0/12 to any port 6543 proto tcp`
-- Only Cloudflare can reach port 6543 externally
-
-### Important Notes
-
-- **Always connect to port 6543 (PgBouncer)**, not 5432 (PostgreSQL direct)
-- **SSL is required** - always append `?sslmode=require`
-- **PgBouncer uses transaction pooling** - no prepared statements across transactions
-- **Keep your Hyperdrive ID secret** - it's the key to your database
-- **Node.js 22 required** for Wrangler CLI
-
-### Disabling Hyperdrive
-
-To disable Hyperdrive and restrict PgBouncer to localhost-only:
-1. Set `HYPERDRIVE_ENABLED=false` in `.env`
-2. Edit `docker-compose.yml`:
-   - Change `LISTEN_ADDR: "0.0.0.0"` to `LISTEN_ADDR: "127.0.0.1"`
-   - Change `"6543:5432"` to `"127.0.0.1:6543:5432"`
-3. Remove the Cloudflare firewall rule: `ufw delete allow from 104.16.0.0/12 to any port 6543 proto tcp`
-4. Restart: `docker compose down && docker compose up -d`
-
----
-
-## About
-
-Created by [Bowofade](https://bowofade.com) | [Twitter](https://twitter.com/Fade_networker) | [Hire or Collaborate](https://bowofade.com)

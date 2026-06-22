@@ -1,0 +1,215 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+configs:
+  loki_yaml:
+    file: ./monitoring/loki.yml
+  alloy_config:
+    file: ./monitoring/alloy/config.alloy
+  prometheus_yaml:
+    file: ./monitoring/prometheus.yml
+  alert_rules:
+    file: ./monitoring/alert.rules.yml
+  alertmanager_yaml:
+    file: ./monitoring/alertmanager.generated.yml
+  grafana_dashboards:
+    file: ./grafana/provisioning/dashboards/dashboards.yml
+  grafana_datasources:
+    file: ./grafana/provisioning/datasources/datasources.yml
+
+services:
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:${POSTGRES_EXPORTER_IMAGE_TAG:-v0.17.1}
+    logging: *default-logging
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
+    networks:
+      - infra
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: unless-stopped
+
+  redis-exporter:
+    image: oliver006/redis_exporter:${REDIS_EXPORTER_IMAGE_TAG:-v1.63.0}
+    logging: *default-logging
+    environment:
+      REDIS_ADDR: redis://redis-proxy:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    networks:
+      - infra
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:${NODE_EXPORTER_IMAGE_TAG:-v1.8.2}
+    logging: *default-logging
+    command:
+      - --path.rootfs=/host
+    volumes:
+      - /:/host:ro,rslave
+    networks:
+      - infra
+    deploy:
+      mode: global
+      restart_policy:
+        condition: unless-stopped
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:${CADVISOR_IMAGE_TAG:-v0.49.1}
+    logging: *default-logging
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - infra
+    deploy:
+      mode: global
+      restart_policy:
+        condition: unless-stopped
+
+  loki:
+    image: grafana/loki:${LOKI_IMAGE_TAG:-3.0.0}
+    logging: *default-logging
+    command: -config.file=/etc/loki/loki.yml
+    volumes:
+      - loki_data:/loki
+    ports:
+      - target: 3100
+        published: ${LOKI_PORT:-3100}
+        protocol: tcp
+        mode: host
+    networks:
+      - infra
+    configs:
+      - source: loki_yaml
+        target: /etc/loki/loki.yml
+        mode: 0444
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: unless-stopped
+
+  alloy:
+    image: grafana/alloy:${ALLOY_IMAGE_TAG:-v1.8.3}
+    logging: *default-logging
+    command: run /etc/alloy/config.alloy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - infra
+    configs:
+      - source: alloy_config
+        target: /etc/alloy/config.alloy
+        mode: 0444
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: unless-stopped
+      placement:
+        constraints:
+          - node.role == manager
+
+  alertmanager:
+    image: prom/alertmanager:${ALERTMANAGER_IMAGE_TAG:-v0.27.0}
+    logging: *default-logging
+    volumes:
+      - alertmanager_data:/alertmanager
+    ports:
+      - target: 9093
+        published: ${ALERTMANAGER_PORT:-9093}
+        protocol: tcp
+        mode: host
+    networks:
+      - infra
+    configs:
+      - source: alertmanager_yaml
+        target: /etc/alertmanager/alertmanager.yml
+        mode: 0444
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_IMAGE_TAG:-v2.53.3}
+    logging: *default-logging
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+      - --web.enable-lifecycle
+    volumes:
+      - prometheus_data:/prometheus
+    ports:
+      - target: 9090
+        published: ${PROMETHEUS_PORT:-9090}
+        protocol: tcp
+        mode: host
+    networks:
+      - infra
+    configs:
+      - source: prometheus_yaml
+        target: /etc/prometheus/prometheus.yml
+        mode: 0444
+      - source: alert_rules
+        target: /etc/prometheus/alert.rules.yml
+        mode: 0444
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: unless-stopped
+
+  grafana:
+    image: grafana/grafana:${GRAFANA_IMAGE_TAG:-11.2.0}
+    logging: *default-logging
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - target: 3000
+        published: ${GRAFANA_PORT:-3030}
+        protocol: tcp
+        mode: host
+    networks:
+      - infra
+    configs:
+      - source: grafana_dashboards
+        target: /etc/grafana/provisioning/dashboards/dashboards.yml
+        mode: 0444
+      - source: grafana_datasources
+        target: /etc/grafana/provisioning/datasources/datasources.yml
+        mode: 0444
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: unless-stopped
+
+networks:
+  infra:
+    external: true
+    name: infra
+
+volumes:
+  loki_data:
+  prometheus_data:
+  grafana_data:
+  alertmanager_data:

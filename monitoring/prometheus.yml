@@ -12,20 +12,22 @@ rule_files:
   - /etc/prometheus/alert.rules.yml
 
 scrape_configs:
-  - job_name: 'prometheus'
+  - job_name: prometheus
     static_configs:
-      - targets: ['localhost:9090']
+      - targets: ["localhost:9090"]
 
-  - job_name: 'postgres'
+  - job_name: postgres
     static_configs:
-      - targets: ['postgres:5432']
-    metrics_path: '/metrics'
+      - targets: ["postgres-exporter:9187"]
 
-  - job_name: 'pgbouncer'
+  - job_name: redis
     static_configs:
-      - targets: ['pgbouncer:5432']
-    metrics_path: '/metrics'
+      - targets: ["redis-exporter:9121"]
 
-  - job_name: 'node_exporter'
+  - job_name: node
     static_configs:
-      - targets: ['host.docker.internal:9100']
+      - targets: ["node-exporter:9100"]
+
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]

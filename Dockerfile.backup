@@ -1,0 +1,4 @@
+ARG POSTGRES_CLIENT_IMAGE_TAG=17-alpine
+FROM postgres:${POSTGRES_CLIENT_IMAGE_TAG}
+
+RUN apk add --no-cache rclone

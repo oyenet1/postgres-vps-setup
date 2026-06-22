@@ -1,159 +1,291 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+secrets:
+  pgbouncer_userlist:
+    file: ./pgbouncer/userlist.generated.txt
+
+configs:
+  pgbouncer_ini:
+    file: ./pgbouncer/pgbouncer.ini
+  pg_hba:
+    file: ./postgres_config/pg_hba.conf
+  postgresql_conf:
+    file: ./postgres_config/postgresql.conf
+  pgadmin_servers:
+    file: ./pgadmin/servers.json
+  sentinel_entrypoint:
+    file: ./redis/sentinel-entrypoint.sh
+  haproxy_cfg:
+    file: ./redis/haproxy.generated.cfg
+  backup_script:
+    file: ./templates/backup.sh
+  rclone_conf:
+    file: ./config/rclone/rclone.generated.conf
+  initdb_sql:
+    file: ./initdb/01-bootstrap.sql
+
 services:
   postgres:
-    image: postgis/postgis:17-3.5-alpine
-    container_name: postgres
+    image: ${POSTGRES_IMAGE:-postgis/postgis:17-3.5-alpine}
+    logging: *default-logging
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
+      - -c
+      - max_connections=${POSTGRES_MAX_CONNECTIONS:-300}
+      - -c
+      - shared_buffers=${POSTGRES_SHARED_BUFFERS:-256MB}
     volumes:
-      - ./postgres_data:/var/lib/postgresql/data
-      - ./ini.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - target: 5432
+        published: ${POSTGRES_PORT:-5432}
+        protocol: tcp
+        mode: host
     networks:
-      - dbstack
-    restart: unless-stopped
+      - infra
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    configs:
+      - source: initdb_sql
+        target: /docker-entrypoint-initdb.d/01-bootstrap.sql
+        mode: 0444
+      - source: pg_hba
+        target: /etc/postgresql/pg_hba.conf
+        mode: 0444
+      - source: postgresql_conf
+        target: /etc/postgresql/postgresql.conf
+        mode: 0444
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: unless-stopped
+        delay: 5s
+      placement:
+        constraints:
+          - node.role == manager
 
   pgbouncer:
-    image: edoburu/pgbouncer:v1.25.1-p0
-    container_name: pgbouncer
-    environment:
-      DATABASE_URL: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
-      AUTH_TYPE: trust
-      POOL_MODE: transaction
-      MAX_CLIENT_CONN: 1000
-      DEFAULT_POOL_SIZE: 100
-      SERVER_LIFETIME: 3600
-      SERVER_IDLE_TIMEOUT: 600
-      SERVER_RESET_QUERY: DISCARD ALL
-      CLIENT_TLS_SSLMODE: disable
-      SERVER_TLS_SSLMODE: disable
-      LISTEN_ADDR: "0.0.0.0"
+    image: edoburu/pgbouncer:${PGBOUNCER_IMAGE_TAG:-v1.25.1-p0}
+    logging: *default-logging
     ports:
-      - "6543:5432"
-    volumes:
-      
-      
-      - ./userlist.txt:/etc/pgbouncer/userlist.txt
+      - target: 6432
+        published: ${PGBOUNCER_PORT:-6543}
+        protocol: tcp
+        mode: host
     networks:
-      - dbstack
-    depends_on:
-      - postgres
-    restart: unless-stopped
+      - infra
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 6432"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    configs:
+      - source: pgbouncer_ini
+        target: /etc/pgbouncer/pgbouncer.ini
+        mode: 0444
+    secrets:
+      - source: pgbouncer_userlist
+        target: /etc/pgbouncer/userlist.txt
+        mode: 0400
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: unless-stopped
 
   pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: pgadmin
+    image: dpage/pgadmin4:${PGADMIN_IMAGE_TAG:-latest}
+    logging: *default-logging
     environment:
-      PGADMIN_EMAIL: ${PGADMIN_EMAIL}
-      PGADMIN_PASSWORD: ${PGADMIN_PASSWORD}
-      PGADMIN_SERVER_NAME: PostgreSQL
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
-    ports:
-      - "5050:80"
+      PGADMIN_CONFIG_SERVER_MODE: "True"
     volumes:
       - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - target: 80
+        published: ${PGADMIN_PORT:-5050}
+        protocol: tcp
+        mode: host
     networks:
-      - dbstack
-    restart: unless-stopped
+      - infra
+    configs:
+      - source: pgadmin_servers
+        target: /pgadmin4/servers.json
+        mode: 0444
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: unless-stopped
+
+  redis-master:
+    image: redis:${REDIS_IMAGE_TAG:-7-alpine}
+    logging: *default-logging
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD}
+      - --masterauth
+      - ${REDIS_PASSWORD}
+    volumes:
+      - redis_master_data:/data
+    networks:
+      - infra
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" --no-auth-warning ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: unless-stopped
+
+  redis-replica:
+    image: redis:${REDIS_IMAGE_TAG:-7-alpine}
+    logging: *default-logging
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    command:
+      - redis-server
+      - --replicaof
+      - redis-master
+      - "6379"
+      - --appendonly
+      - "yes"
+      - --replica-read-only
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD}
+      - --masterauth
+      - ${REDIS_PASSWORD}
+    volumes:
+      - redis_replica_data:/data
+    networks:
+      - infra
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" --no-auth-warning ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: unless-stopped
+
+  redis-sentinel:
+    image: redis:${REDIS_IMAGE_TAG:-7-alpine}
+    logging: *default-logging
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_SENTINEL_MASTER_NAME: ${REDIS_SENTINEL_MASTER_NAME:-dbmaster}
+    command: ["/bin/sh", "/redis/sentinel-entrypoint.sh"]
+    networks:
+      - infra
+    configs:
+      - source: sentinel_entrypoint
+        target: /redis/sentinel-entrypoint.sh
+        mode: 0555
+    deploy:
+      mode: replicated
+      replicas: 3
+      restart_policy:
+        condition: unless-stopped
+
+  redis-proxy:
+    image: haproxy:${HAPROXY_IMAGE_TAG:-2.9-alpine}
+    logging: *default-logging
+    ports:
+      - target: 6379
+        published: ${REDIS_PORT:-6379}
+        protocol: tcp
+        mode: host
+    networks:
+      - infra
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 6379"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    configs:
+      - source: haproxy_cfg
+        target: /usr/local/etc/haproxy/haproxy.cfg
+        mode: 0444
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: unless-stopped
 
   backup:
-    image: ubuntu:latest
-    container_name: backup
-    volumes:
-      - ./backups:/backups
-      - ./templates/backup.sh:/backup.sh
-      - ./templates/backup.cron:/backup.cron
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./config/rclone:/config/rclone:ro
+    image: ${INFRA_BACKUP_IMAGE:-infra/backup:latest}
+    logging: *default-logging
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
-      GOOGLE_DRIVE_REMOTE_NAME: ${GOOGLE_DRIVE_REMOTE_NAME}
-      GOOGLE_DRIVE_FOLDER: ${GOOGLE_DRIVE_FOLDER}
-      GOOGLE_DRIVE_TOKEN: ${GOOGLE_DRIVE_TOKEN:-}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_RETENTION: ${BACKUP_RETENTION:-2}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-43200}
+      R2_BACKUP_ENABLED: ${R2_BACKUP_ENABLED:-false}
+      R2_BUCKET: ${R2_BUCKET:-}
+      R2_PREFIX: ${R2_PREFIX:-infra/}
+      R2_MAX_BACKUPS_PER_DB: ${R2_MAX_BACKUPS_PER_DB:-2}
       RCLONE_CONFIG: /config/rclone/rclone.conf
-      HOME: /root
-      MAX_BACKUPS: ${MAX_BACKUPS:-3}
-      ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-}
-      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_FROM: ${SMTP_FROM:-}
-      MONITORING_ENABLED: ${MONITORING_ENABLED:-false}
-    command: >
-      bash -c "apt-get update && apt-get install -y cron rclone msmtp && crontab /backup.cron && cron && tail -f /dev/null"
-    networks:
-      - dbstack
-    depends_on:
-      - postgres
-    restart: unless-stopped
-
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: prometheus
-    ports:
-      - "9090:9090"
     volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./monitoring/alert.rules.yml:/etc/prometheus/alert.rules.yml:ro
-      - prometheus_data:/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention.time=15d'
+      - backup_data:/backups
+    command: ["/bin/sh", "-c", "while true; do /bin/sh /scripts/backup.sh; sleep ${BACKUP_INTERVAL_SECONDS:-43200}; done"]
     networks:
-      - dbstack
-    restart: unless-stopped
-    profiles:
-      - monitoring
-
-  grafana:
-    image: grafana/grafana:latest
-    container_name: grafana
-    ports:
-      - "${GRAFANA_PORT:-3030}:3000"
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
-    environment:
-      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin123}
-      GF_USERS_ALLOW_SIGN_UP: "false"
-    networks:
-      - dbstack
-    restart: unless-stopped
-    depends_on:
-      - prometheus
-    profiles:
-      - monitoring
-
-  alertmanager:
-    image: prom/alertmanager:latest
-    container_name: alertmanager
-    ports:
-      - "9093:9093"
-    volumes:
-      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-      - alertmanager_data:/alertmanager
-    command:
-      - '--config.file=/etc/alertmanager/alertmanager.yml'
-      - '--storage.path=/alertmanager'
-    networks:
-      - dbstack
-    restart: unless-stopped
-    profiles:
-      - monitoring
+      - infra
+    configs:
+      - source: backup_script
+        target: /scripts/backup.sh
+        mode: 0555
+      - source: rclone_conf
+        target: /config/rclone/rclone.conf
+        mode: 0400
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: unless-stopped
 
 networks:
-  dbstack:
-    driver: bridge
+  infra:
+    driver: overlay
+    attachable: true
 
 volumes:
+  postgres_data:
+  redis_master_data:
+  redis_replica_data:
   pgadmin_data:
-  prometheus_data:
-  grafana_data:
-  alertmanager_data:
+  backup_data:
