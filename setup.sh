@@ -44,6 +44,10 @@ random_secret() {
   openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c 40
 }
 
+detect_public_ip() {
+  ip -4 route get 1.1.1.1 2>/dev/null | awk '/src/ {print $7; exit}' || echo "127.0.0.1"
+}
+
 quote_sed_replacement() {
   printf '%s' "$1" | sed -e 's/[\/&]/\\&/g'
 }

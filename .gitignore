@@ -5,8 +5,10 @@
 
 # Generated files
 postgres_data/
-pgbouncer_ssl/*.crt
-pgbouncer_ssl/*.key
+pgbouncer/pgbouncer-cert.pem
+pgbouncer/pgbouncer-key.pem
+postgres_config/server-cert.pem
+postgres_config/server-key.pem
 userlist.txt
 pgbouncer.ini
 pgbouncer/userlist.generated.txt
