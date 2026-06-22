@@ -511,12 +511,27 @@ EOF
 }
 
 init_swarm() {
-  if docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null | grep -q active; then
-    ok "Docker Swarm is already active"
+  local node_state
+  local is_manager
+
+  node_state="$(docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null || true)"
+  is_manager="$(docker info --format '{{.Swarm.ControlAvailable}}' 2>/dev/null || true)"
+
+  if [[ "$node_state" == "active" && "$is_manager" == "true" ]]; then
+    ok "Docker Swarm manager is already active"
     return
   fi
 
-  log "Initializing Docker Swarm"
+  if [[ "$node_state" == "active" && "$is_manager" != "true" ]]; then
+    warn "Node is a Swarm worker, not a manager. Leaving and re-initializing as manager."
+    docker swarm leave --force
+  fi
+
+  if [[ "$node_state" != "active" ]]; then
+    docker swarm leave --force 2>/dev/null || true
+  fi
+
+  log "Initializing Docker Swarm (manager)"
 
   local advertise_addr="${SWARM_ADVERTISE_ADDR:-}"
   if [[ -z "$advertise_addr" ]]; then
@@ -525,13 +540,13 @@ init_swarm() {
 
   if [[ -n "$advertise_addr" ]]; then
     log "Using advertise address: $advertise_addr"
-    docker swarm init --advertise-addr "$advertise_addr" || fail "docker swarm init failed (advertise-addr=$advertise_addr)"
+    docker swarm init --advertise-addr "$advertise_addr" || fail "docker swarm init failed. Is port 2377 open? Try: ufw allow 2377/tcp && ufw allow 7946/tcp && ufw allow 4789/udp"
   else
-    warn "Could not auto-detect network interface, trying without --advertise-addr"
-    docker swarm init || fail "docker swarm init failed; set SWARM_ADVERTISE_ADDR explicitly and retry"
+    log "No advertise address detected, initializing without --advertise-addr"
+    docker swarm init || fail "docker swarm init failed. Set SWARM_ADVERTISE_ADDR=<your-ip> and retry."
   fi
 
-  ok "Docker Swarm initialized"
+  ok "Docker Swarm initialized as manager"
 }
 
 detect_swarm_advertise_addr() {
