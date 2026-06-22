@@ -19,10 +19,6 @@ configs:
     file: ./postgres_config/pg_hba.conf
   postgresql_conf:
     file: ./postgres_config/postgresql.conf
-  postgres_cert:
-    file: ./postgres_config/server-cert.pem
-  postgres_key:
-    file: ./postgres_config/server-key.pem
   pgadmin_servers:
     file: ./pgadmin/servers.json
   sentinel_entrypoint:
@@ -105,12 +101,6 @@ services:
       - source: postgresql_conf
         target: /etc/postgresql/postgresql.conf
         mode: 0644
-      - source: postgres_cert
-        target: /etc/postgresql/server-cert.pem
-        mode: 0444
-      - source: postgres_key
-        target: /etc/postgresql/server-key.pem
-        mode: 0444
     deploy:
       mode: replicated
       replicas: 1

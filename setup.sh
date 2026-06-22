@@ -44,10 +44,6 @@ random_secret() {
   openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c 40
 }
 
-detect_public_ip() {
-  ip -4 route get 1.1.1.1 2>/dev/null | awk '/src/ {print $7; exit}' || echo "127.0.0.1"
-}
-
 quote_sed_replacement() {
   printf '%s' "$1" | sed -e 's/[\/&]/\\&/g'
 }
@@ -293,16 +289,6 @@ render_pgbouncer_config() {
       -subj "/CN=pgbouncer/O=Infra" \
       -addext "subjectAltName=DNS:pgbouncer,DNS:localhost,IP:127.0.0.1"
     chmod 600 pgbouncer/pgbouncer-key.pem
-  fi
-
-  if [[ ! -f postgres_config/server-cert.pem || ! -f postgres_config/server-key.pem ]]; then
-    log "Generating self-signed cert for PostgreSQL"
-    openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
-      -keyout postgres_config/server-key.pem \
-      -out postgres_config/server-cert.pem \
-      -subj "/CN=postgres/O=Infra" \
-      -addext "subjectAltName=DNS:postgres,DNS:localhost,IP:127.0.0.1,IP:$(detect_public_ip)"
-    chmod 600 postgres_config/server-key.pem
   fi
 
   cat > pgbouncer/pgbouncer.ini <<EOF
