@@ -32,7 +32,7 @@ Replace `22` with your real SSH port. The script will:
 If you'd rather clone yourself:
 
 ```bash
-git clone -b postgis https://github.com/oyenet1/postgres-vps-setup.git infra
+git clone https://github.com/oyenet1/postgres-vps-setup.git infra
 cd infra
 sudo ./setup.sh -s 22
 ```
