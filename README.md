@@ -11,7 +11,7 @@ Single-VPS Docker Swarm stack for shared application infrastructure:
 - **pgAdmin** on `127.0.0.1:5050`
 - **Redis** master, replica, 3-node Sentinel, and HAProxy write proxy
 - **Backups** to local disk + optional Cloudflare R2 (always 2 latest kept per DB)
-- **Optional monitoring**: Prometheus, Grafana, Loki, Alloy, Alertmanager, exporters
+- **Monitoring**: Prometheus, Grafana, Loki, Alloy, Alertmanager, exporters
 - **Cross-Swarm** service discovery via Tailscale (see `docs/TAILSCALE.md`)
 
 Replace `22` with your real SSH port. The script will:
@@ -181,21 +181,9 @@ networks:
 
 Note: your app container must be on the `infra` overlay network to use service names (`pgbouncer`, `redis-proxy`). For external compose files, declare `networks: { infra: { external: true } }`.
 
-## Monitoring (optional)
+## Monitoring
 
-Deploy with `-m` flag:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/oyenet1/postgres-vps-setup/master/install.sh | sudo bash -s -- -s 22 -m
-```
-
-Or enable in `.env` and redeploy:
-
-```env
-MONITORING_ENABLED=true
-```
-
-Comes with:
+Always included. No extra flags needed. Comes with:
 - **Grafana** (`http://YOUR_VPS_IP:3030`, admin / auto-generated password)
 - **Prometheus** (metrics from postgres, pgbouncer, redis, node)
 - **Loki** (log aggregation from all containers)
