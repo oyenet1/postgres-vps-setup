@@ -2,110 +2,143 @@
 
 Single-VPS Docker Swarm stack for shared application infrastructure:
 
-- PostgreSQL 17 with PostGIS, pgvector, pg_cron
-- PgBouncer on public host port `6543`
-- pgAdmin
-- Redis master, replica, Sentinel (3 nodes), and HAProxy write proxy
-- Individual database backups to local disk + optional Cloudflare R2
-- Optional Prometheus, Grafana, Loki, Alloy, Alertmanager, and exporters
+- **PostgreSQL 17** with PostGIS, pgvector, pg_cron, and 11 other extensions
+- **PgBouncer** on public host port `6543`
+- **pgAdmin** on `127.0.0.1:5050`
+- **Redis** master, replica, 3-node Sentinel, and HAProxy write proxy
+- **Backups** to local disk + optional Cloudflare R2 (always 2 latest kept per DB)
+- **Optional monitoring**: Prometheus, Grafana, Loki, Alloy, Alertmanager, exporters
+- **Optional Cloudflare Tunnel** for private edge access (Hyperdrive/Workers)
+- **Cross-Swarm** service discovery via Tailscale (see `docs/TAILSCALE.md`)
 
-## Prerequisites
-
-Build and push the backup image (or let setup.sh build it locally):
+## Quick start
 
 ```bash
-bash scripts/build-backup-image.sh
+curl -fsSL https://raw.githubusercontent.com/oyenet1/postgres-vps-setup/postgis/install.sh | sudo bash -s -- -s 22
 ```
 
-For multi-node Swarm clusters push to a registry and set `INFRA_BACKUP_IMAGE`.
+That's it. One command. Replace `22` with your real SSH port.
 
-## Install
+The script will:
+1. Clone this repo to `/opt/infra`
+2. Install Docker if missing
+3. Initialize Docker Swarm
+4. Create `.env` with auto-generated strong passwords
+5. Build the custom Postgres image (PostGIS + pgvector + pg_cron)
+6. Build the backup image
+7. Open the PgBouncer firewall port
+8. Deploy the full stack
+9. Configure the PgBouncer auth role
+10. Verify everything is reachable
+
+## Manual install
+
+If you'd rather clone yourself:
 
 ```bash
+git clone -b postgis https://github.com/oyenet1/postgres-vps-setup.git infra
+cd infra
 sudo ./setup.sh -s 22
 ```
 
-Use your real SSH port instead of `22`. The script will:
-
-- install Docker if missing
-- initialize Docker Swarm if not active
-- create or update `.env`
-- generate strong passwords for placeholder values
-- render local runtime config files
-- build the backup image
-- open the PgBouncer firewall port
-- deploy the stack
-- configure PgBouncer auth
-- verify PgBouncer and Redis are reachable
-
-Enable monitoring during install:
+## Common options
 
 ```bash
-sudo ./setup.sh -s 22 -m
+sudo ./setup.sh -s 22            # deploy, SSH port 22
+sudo ./setup.sh -s 22 -m         # also deploy monitoring stack
+sudo ./setup.sh --no-start       # render config files only, no deploy
 ```
 
-Render files without starting containers:
+## After install
+
+Postgres direct (admin only):
+```
+127.0.0.1:5432
+```
+
+PgBouncer (apps connect here):
+```
+postgres://postgres:PASSWORD@YOUR_VPS_IP:6543/DATABASE
+```
+
+Redis:
+```
+redis://:PASSWORD@127.0.0.1:6379
+```
+
+pgAdmin:
+```
+http://127.0.0.1:5050
+```
+
+## Create a database
 
 ```bash
-sudo ./setup.sh --no-start
+docker run --rm --network infra postgres:17-alpine \
+  psql -h postgres -U postgres -c "CREATE DATABASE myapp;"
+```
+
+Then connect from any app:
+```
+postgres://postgres:PASSWORD@YOUR_VPS_IP:6543/myapp
 ```
 
 ## Environment
 
+Edit `.env` to customize:
+
 ```env
-POSTGRES_DB=postgres
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=change_me_postgres_password
-PGADMIN_EMAIL=admin@example.com
-PGADMIN_PASSWORD=change_me_pgadmin_password
-REDIS_PASSWORD=change_me_redis_password
-GRAFANA_PASSWORD=change_me_grafana_password
+POSTGRES_PASSWORD=...           # auto-generated on first run
+PGADMIN_PASSWORD=...            # auto-generated
+REDIS_PASSWORD=...              # auto-generated
+GRAFANA_PASSWORD=...            # auto-generated
 
 PGBOUNCER_PORT=6543
-PGBOUNCER_BIND_ADDR=0.0.0.0
+PGBOUNCER_BIND_ADDR=0.0.0.0     # apps reach PgBouncer on this port
 
-R2_BACKUP_ENABLED=true
-R2_ACCOUNT_ID=your_cloudflare_account_id
-R2_ACCESS_KEY_ID=your_r2_access_key_id
-R2_SECRET_ACCESS_KEY=your_r2_secret_access_key
-R2_BUCKET=your_bucket_name
-R2_PREFIX=infra/
+R2_BACKUP_ENABLED=false         # set true to upload to Cloudflare R2
+R2_ACCESS_KEY_ID=...
+R2_SECRET_ACCESS_KEY=...
+R2_BUCKET=...
+
+MONITORING_ENABLED=false        # set true to deploy Prometheus/Grafana/etc
+
+CLOUDFLARE_TUNNEL_TOKEN=...     # from https://one.dash.cloudflare.com (optional)
 ```
 
-`setup.sh` generates passwords automatically when it sees `change_me_*` placeholders.
+After editing, re-render and redeploy:
+```bash
+sudo ./setup.sh --no-start      # regenerate configs
+docker stack deploy -c docker-compose.yml infra
+```
 
 ## Ports
 
-| Service | Default host binding | Purpose |
-| --- | --- | --- |
-| PgBouncer | `0.0.0.0:6543` | Main external PostgreSQL endpoint for apps |
-| PostgreSQL | `127.0.0.1:5432` | Local direct admin access only |
-| pgAdmin | `127.0.0.1:5050` | Browser admin UI |
-| Redis proxy | `127.0.0.1:6379` | Local Redis endpoint |
-| Prometheus | `127.0.0.1:9090` | Metrics, monitoring only |
-| Grafana | `127.0.0.1:3030` | Dashboards, monitoring only |
-| Alertmanager | `127.0.0.1:9093` | Alerts, monitoring only |
-| Loki | `127.0.0.1:3100` | Logs, monitoring only |
+| Service | Default | Purpose |
+|---|---|---|
+| PgBouncer | `0.0.0.0:6543` | Main app endpoint for Postgres |
+| PostgreSQL | `127.0.0.1:5432` | Local admin only |
+| pgAdmin | `127.0.0.1:5050` | Browser UI |
+| Redis | `127.0.0.1:6379` | Local Redis |
+| Prometheus | `127.0.0.1:9090` | Monitoring only |
+| Grafana | `127.0.0.1:3030` | Monitoring only |
+| Alertmanager | `127.0.0.1:9093` | Monitoring only |
+| Loki | `127.0.0.1:3100` | Monitoring only |
 
-## Connection Strings
+## Common operations
 
-External app through PgBouncer:
-
-```text
-postgres://POSTGRES_USER:POSTGRES_PASSWORD@YOUR_SERVER_IP:6543/DATABASE_NAME
-```
-
-Local Redis through HAProxy:
-
-```text
-redis://:REDIS_PASSWORD@127.0.0.1:6379
+```bash
+docker stack ps infra                    # show all services and their state
+docker service logs infra_pgbouncer -f   # tail PgBouncer logs
+docker service update --force infra_pgbouncer   # restart pgbouncer
+docker stack rm infra                    # tear it all down
 ```
 
 ## Backups
 
-Each run creates one timestamped local folder:
+Run every `BACKUP_INTERVAL_SECONDS` (default 12h). Each run creates one timestamped folder per database:
 
-```text
+```
 backups/
   20260621_235900/
     postgres.sql.gz
@@ -113,54 +146,38 @@ backups/
     analytics.sql.gz
 ```
 
-Run a backup immediately:
+Only the 2 latest backups are kept per database (local + R2). Older ones auto-delete.
 
+Force a backup now:
 ```bash
 docker exec $(docker ps --filter name=infra_backup --format='{{.Names}}' | head -1) /bin/sh /scripts/backup.sh
 ```
 
-Restore one database:
-
+Restore:
 ```bash
-gunzip -c backups/20260621_235900/myapp.sql.gz | docker run --rm -i --network infra postgres:17-alpine psql -h postgres -U "$POSTGRES_USER" -d myapp
+gunzip -c backups/20260621_235900/myapp.sql.gz | \
+  docker run --rm -i --network infra postgres:17-alpine \
+  psql -h postgres -U postgres -d myapp
 ```
 
-## Monitoring
+## Cloudflare Tunnel (optional)
 
-Deploy the monitoring stack:
+Add `CLOUDFLARE_TUNNEL_TOKEN` to `.env` and redeploy. See `docs/CLOUDFLARE-TUNNEL.md` for full setup including Hyperdrive for Cloudflare Workers.
 
+## Cross-Swarm service names
+
+To use `postgres`, `pgbouncer`, `redis-proxy` as names from other Swarms, install Tailscale on every VPS. See `docs/TAILSCALE.md`.
+
+## Clean up Docker
+
+Remove everything except running containers:
 ```bash
-MONITORING_ENABLED=true bash scripts/deploy.sh
+docker system prune -a --volumes -f
 ```
 
-Or manually:
+## Notes
 
-```bash
-docker stack deploy -c docker-compose.yml -c docker-compose.monitoring.yml infra
-```
-
-## Operations
-
-Show stack:
-
-```bash
-docker stack ps infra
-```
-
-View PgBouncer logs:
-
-```bash
-docker service logs infra_pgbouncer -f
-```
-
-Restart a service after config changes:
-
-```bash
-docker service update --force infra_pgbouncer
-```
-
-Remove the stack:
-
-```bash
-docker stack rm infra
-```
+- All passwords are auto-generated and stored in `.env` (gitignored)
+- Single-node Swarm by default; add workers with `docker swarm join`
+- For multi-node, `postgres_data` and `backup_data` need shared storage (NFS/EFS)
+- Built-in extensions: postgis, postgis_topology, pg_stat_statements, pg_trgm, unaccent, btree_gin, btree_gist, hstore, ltree, citext, pgcrypto, uuid-ossp
