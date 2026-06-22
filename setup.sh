@@ -276,6 +276,7 @@ render_pgbouncer_config() {
   local min_pool_size
   local reserve_pool_size
   local max_client_conn
+  local tls_enabled
 
   pg_user="$(env_default POSTGRES_USER postgres)"
   auth_user="$(env_default PGBOUNCER_AUTH_USER pgbouncer_auth)"
@@ -284,8 +285,19 @@ render_pgbouncer_config() {
   min_pool_size="$(env_default PGBOUNCER_MIN_POOL_SIZE 5)"
   reserve_pool_size="$(env_default PGBOUNCER_RESERVE_POOL_SIZE 10)"
   max_client_conn="$(env_default PGBOUNCER_MAX_CLIENT_CONN 2000)"
+  tls_enabled="$(env_default PGBOUNCER_TLS_ENABLED false)"
 
   mkdir -p pgbouncer
+
+  if [[ ! -f pgbouncer/pgbouncer-cert.pem || ! -f pgbouncer/pgbouncer-key.pem ]]; then
+    log "Generating self-signed cert for PgBouncer"
+    openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+      -keyout pgbouncer/pgbouncer-key.pem \
+      -out pgbouncer/pgbouncer-cert.pem \
+      -subj "/CN=pgbouncer/O=Infra" \
+      -addext "subjectAltName=DNS:pgbouncer,DNS:localhost,IP:127.0.0.1"
+    chmod 600 pgbouncer/pgbouncer-key.pem
+  fi
 
   cat > pgbouncer/pgbouncer.ini <<EOF
 [databases]
@@ -313,6 +325,12 @@ ignore_startup_parameters = extra_float_digits,options
 server_reset_query = DISCARD ALL
 log_connections = 1
 log_disconnections = 1
+$( [[ "$tls_enabled" == "true" ]] && cat <<TLS
+client_tls_sslmode = prefer
+client_tls_key_file = /etc/pgbouncer/server-key.pem
+client_tls_cert_file = /etc/pgbouncer/server-cert.pem
+TLS
+)
 EOF
 
   cat > pgbouncer/userlist.generated.txt <<EOF
@@ -321,7 +339,7 @@ EOF
 EOF
 
   chmod 600 pgbouncer/userlist.generated.txt
-  ok "Rendered PgBouncer config with wildcard database routing"
+  ok "Rendered PgBouncer config with wildcard database routing${tls_enabled:+ and TLS}"
 }
 
 render_redis_config() {

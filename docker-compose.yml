@@ -11,6 +11,10 @@ secrets:
 configs:
   pgbouncer_ini:
     file: ./pgbouncer/pgbouncer.ini
+  pgbouncer_cert:
+    file: ./pgbouncer/pgbouncer-cert.pem
+  pgbouncer_key:
+    file: ./pgbouncer/pgbouncer-key.pem
   pg_hba:
     file: ./postgres_config/pg_hba.conf
   postgresql_conf:
@@ -102,6 +106,12 @@ services:
       - source: pgbouncer_ini
         target: /etc/pgbouncer/pgbouncer.ini
         mode: 0444
+      - source: pgbouncer_cert
+        target: /etc/pgbouncer/server-cert.pem
+        mode: 0444
+      - source: pgbouncer_key
+        target: /etc/pgbouncer/server-key.pem
+        mode: 0400
     secrets:
       - source: pgbouncer_userlist
         target: /etc/pgbouncer/userlist.txt
@@ -284,13 +294,22 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        if [ -z "$$TUNNEL_TOKEN" ]; then
-          echo "[cloudflared] TUNNEL_TOKEN not set, sleeping"
+        if [ -n "$$TUNNEL_TOKEN" ]; then
+          exec tunnel --no-autoupdate run
+        elif [ -n "$$CLOUDFLARE_EMAIL" ] && [ -n "$$CLOUDFLARE_API_KEY" ] && [ -n "$$TUNNEL_NAME" ]; then
+          cloudflared tunnel login --api-key "$$CLOUDFLARE_EMAIL" "$$CLOUDFLARE_API_KEY"
+          cloudflared tunnel create "$$TUNNEL_NAME" 2>/dev/null || true
+          exec cloudflared tunnel run "$$TUNNEL_NAME"
+        else
+          echo "[cloudflared] No auth method configured."
+          echo "  Set TUNNEL_TOKEN, or (CLOUDFLARE_EMAIL + CLOUDFLARE_API_KEY + TUNNEL_NAME)"
           sleep infinity
         fi
-        exec tunnel --no-autoupdate run
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+      CLOUDFLARE_EMAIL: ${CLOUDFLARE_EMAIL:-}
+      CLOUDFLARE_API_KEY: ${CLOUDFLARE_API_KEY:-}
+      TUNNEL_NAME: ${CLOUDFLARE_TUNNEL_NAME:-infra-db}
     networks:
       - infra
     deploy:
