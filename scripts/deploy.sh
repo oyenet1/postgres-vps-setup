@@ -27,6 +27,18 @@ if [[ "$NODE_STATE" != "active" || "$IS_MANAGER" != "true" ]]; then
   fi
 fi
 
+if docker network inspect infra >/dev/null 2>&1; then
+  DRIVER="$(docker network inspect infra --format '{{.Driver}}')"
+  SCOPE="$(docker network inspect infra --format '{{.Scope}}')"
+  if [[ "$DRIVER" != "overlay" || "$SCOPE" != "swarm" ]]; then
+    echo "[deploy] network infra exists but is ${DRIVER}/${SCOPE}, expected overlay/swarm" >&2
+    exit 1
+  fi
+else
+  echo "[deploy] Creating persistent overlay network: infra"
+  docker network create --driver overlay --attachable infra >/dev/null
+fi
+
 echo "[deploy] Deploying stack: $STACK_NAME"
 docker stack deploy "${COMPOSE_FILES[@]}" "$STACK_NAME"
 

@@ -567,6 +567,53 @@ detect_swarm_advertise_addr() {
   fi
 }
 
+ensure_infra_network() {
+  local network_name="infra"
+  local driver
+  local scope
+
+  if docker network inspect "$network_name" >/dev/null 2>&1; then
+    driver="$(docker network inspect "$network_name" --format '{{.Driver}}')"
+    scope="$(docker network inspect "$network_name" --format '{{.Scope}}')"
+
+    if [[ "$driver" != "overlay" || "$scope" != "swarm" ]]; then
+      fail "Docker network ${network_name} exists but is ${driver}/${scope}, expected overlay/swarm. Remove or rename it before deploying."
+    fi
+
+    ok "Docker overlay network ${network_name} already exists"
+    return
+  fi
+
+  log "Creating persistent Docker overlay network: ${network_name}"
+  docker network create --driver overlay --attachable "$network_name" >/dev/null
+  ok "Created Docker overlay network ${network_name}"
+}
+
+wait_for_stack_removed() {
+  local stack_name="$1"
+  local attempts=0
+  local services
+  local networks
+  local configs
+  local secrets
+
+  while [[ "$attempts" -lt 60 ]]; do
+    services="$(docker service ls --filter "label=com.docker.stack.namespace=${stack_name}" -q 2>/dev/null || true)"
+    networks="$(docker network ls --filter "label=com.docker.stack.namespace=${stack_name}" -q 2>/dev/null || true)"
+    configs="$(docker config ls --filter "label=com.docker.stack.namespace=${stack_name}" -q 2>/dev/null || true)"
+    secrets="$(docker secret ls --filter "label=com.docker.stack.namespace=${stack_name}" -q 2>/dev/null || true)"
+
+    if [[ -z "$services" && -z "$networks" && -z "$configs" && -z "$secrets" ]]; then
+      return
+    fi
+
+    attempts=$((attempts + 1))
+    sleep 2
+  done
+
+  fail "Timed out waiting for stack ${stack_name} to be removed"
+}
+
 start_stack() {
   if [[ "$START_STACK" != "true" ]]; then
     warn "Skipping container startup because --no-start was supplied"
@@ -574,6 +621,7 @@ start_stack() {
   fi
 
   init_swarm
+  ensure_infra_network
 
   local compose_cmd="docker stack deploy -c docker-compose.yml"
   local backup_image
@@ -601,7 +649,8 @@ start_stack() {
 
   log "Removing old stack (if any) to allow config updates"
   docker stack rm infra 2>/dev/null || true
-  sleep 5
+  wait_for_stack_removed infra
+  ensure_infra_network
 
   log "Loading environment from .env"
   set -a
@@ -693,6 +742,86 @@ SQL
   ok "Configured PgBouncer auth role"
 }
 
+verify_pgbouncer_dynamic_routing() {
+  local pg_user
+  local pg_password
+  local pg_image
+  local pgbouncer_port
+  local probe_suffix
+  local probe_db
+  local probe_role
+  local probe_password
+  local probe_result
+  local probe_status
+
+  pg_user="$(env_default POSTGRES_USER postgres)"
+  pg_password="$(env_value POSTGRES_PASSWORD)"
+  pg_image="postgres:${POSTGRES_CLIENT_IMAGE_TAG:-17-alpine}"
+  pgbouncer_port="$(env_default PGBOUNCER_PORT 6543)"
+  probe_suffix="$(date +%s)"
+  probe_db="pgbouncer_probe_db_${probe_suffix}"
+  probe_role="pgbouncer_probe_role_${probe_suffix}"
+  probe_password="$(random_secret)"
+
+  log "Verifying PgBouncer wildcard routing with a temporary database and role"
+
+  docker run --rm -i --network infra -e PGPASSWORD="$pg_password" "$pg_image" \
+    psql \
+      -h postgres \
+      -U "$pg_user" \
+      -d postgres \
+      -v ON_ERROR_STOP=1 \
+      -v probe_db="$probe_db" \
+      -v probe_role="$probe_role" \
+      -v probe_password="$probe_password" <<'SQL'
+SELECT format('DROP DATABASE IF EXISTS %I WITH (FORCE)', :'probe_db')
+\gexec
+
+SELECT format('DROP ROLE IF EXISTS %I', :'probe_role')
+\gexec
+
+SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'probe_role', :'probe_password')
+\gexec
+
+SELECT format('CREATE DATABASE %I OWNER %I', :'probe_db', :'probe_role')
+\gexec
+SQL
+
+  set +e
+  probe_result="$(
+    docker run --rm --network host -e PGPASSWORD="$probe_password" "$pg_image" \
+      psql \
+        -h 127.0.0.1 \
+        -p "$pgbouncer_port" \
+        -U "$probe_role" \
+        -d "$probe_db" \
+        -Atc "SELECT current_database() || '|' || current_user;" 2>/dev/null
+  )"
+  probe_status=$?
+  set -e
+
+  docker run --rm -i --network infra -e PGPASSWORD="$pg_password" "$pg_image" \
+    psql \
+      -h postgres \
+      -U "$pg_user" \
+      -d postgres \
+      -v ON_ERROR_STOP=1 \
+      -v probe_db="$probe_db" \
+      -v probe_role="$probe_role" <<'SQL'
+SELECT format('DROP DATABASE IF EXISTS %I WITH (FORCE)', :'probe_db')
+\gexec
+
+SELECT format('DROP ROLE IF EXISTS %I', :'probe_role')
+\gexec
+SQL
+
+  if [[ "$probe_status" -ne 0 || "$probe_result" != "${probe_db}|${probe_role}" ]]; then
+    fail "PgBouncer could not connect to a newly-created database and role. Check infra_pgbouncer logs."
+  fi
+
+  ok "PgBouncer accepts future databases and login roles without config changes"
+}
+
 verify_stack() {
   if [[ "$START_STACK" != "true" ]]; then
     return
@@ -724,6 +853,8 @@ verify_stack() {
   if [[ "$attempts" -eq 30 ]]; then
     fail "PgBouncer did not become reachable on port $(env_default PGBOUNCER_PORT 6543) after 60s"
   fi
+
+  verify_pgbouncer_dynamic_routing
 
   attempts=0
   log "Waiting for Redis proxy on host port $(env_default REDIS_PORT 6379)"
@@ -789,7 +920,7 @@ Backups:
 Useful commands:
   docker stack ps infra
   docker service logs infra_pgbouncer -f
-  docker stack deploy -c docker-compose.yml infra
+  ./scripts/deploy.sh
 EOF
 }
 

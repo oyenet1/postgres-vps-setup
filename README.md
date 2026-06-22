@@ -237,7 +237,7 @@ R2_BUCKET=...
 After editing, re-render and redeploy:
 ```bash
 sudo ./setup.sh --no-start      # regenerate configs
-docker stack deploy -c docker-compose.yml infra
+./scripts/deploy.sh             # creates/validates the external infra network, then deploys
 ```
 
 ## Ports
