@@ -589,6 +589,10 @@ start_stack() {
     docker build -t "$backup_image" -f Dockerfile.backup .
   fi
 
+  log "Removing old stack (if any) to allow config updates"
+  docker stack rm infra 2>/dev/null || true
+  sleep 5
+
   if [[ "$(env_default MONITORING_ENABLED false)" == "true" ]]; then
     log "Deploying stack with monitoring"
     ${compose_cmd} -c docker-compose.monitoring.yml infra
