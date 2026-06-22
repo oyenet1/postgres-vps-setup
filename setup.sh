@@ -616,13 +616,8 @@ start_stack() {
   source .env
   set +a
 
-  if [[ "$(env_default MONITORING_ENABLED false)" == "true" ]]; then
-    log "Deploying stack with monitoring"
-    ${compose_cmd} -c docker-compose.monitoring.yml infra
-  else
-    log "Deploying stack"
-    ${compose_cmd} infra
-  fi
+  log "Deploying stack"
+  ${compose_cmd} infra
 }
 
 configure_database_auth() {
