@@ -42,4 +42,8 @@ fi
 echo "[deploy] Deploying stack: $STACK_NAME"
 docker stack deploy "${COMPOSE_FILES[@]}" "$STACK_NAME"
 
+if [[ "$STACK_NAME" == "infra" ]]; then
+  ./scripts/configure-pgbouncer-auth.sh
+fi
+
 echo "[deploy] Done"
