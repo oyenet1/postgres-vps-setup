@@ -2,16 +2,15 @@
 set -euo pipefail
 
 REPO_URL="${REPO_URL:-https://github.com/oyenet1/postgres-vps-setup.git}"
-BRANCH="${BRANCH:-postgis}"
+BRANCH="${BRANCH:-master}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/infra}"
 
 usage() {
   cat <<EOF
-Usage: curl -fsSL https://raw.githubusercontent.com/oyenet1/postgres-vps-setup/postgis/install.sh | sudo bash -s -- -s SSH_PORT [options]
+Usage: curl -fsSL https://raw.githubusercontent.com/oyenet1/postgres-vps-setup/master/install.sh | sudo bash -s -- -s SSH_PORT [options]
 
 Options:
   -s PORT      SSH port to allow if UFW is available
-  -m           enable monitoring profile
   --no-start   render files only, do not start containers
   -h           show this help
 
@@ -27,13 +26,9 @@ EXTRA_ARGS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -s)
+      -s)
       SSH_PORT="$2"
       shift 2
-      ;;
-    -m|--monitoring)
-      EXTRA_ARGS+=("-m")
-      shift
       ;;
     --no-start)
       EXTRA_ARGS+=("--no-start")
