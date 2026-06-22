@@ -572,21 +572,18 @@ ensure_infra_network() {
   local driver
   local scope
 
-  if docker network inspect "$network_name" >/dev/null 2>&1; then
-    driver="$(docker network inspect "$network_name" --format '{{.Driver}}')"
-    scope="$(docker network inspect "$network_name" --format '{{.Scope}}')"
-
-    if [[ "$driver" != "overlay" || "$scope" != "swarm" ]]; then
-      fail "Docker network ${network_name} exists but is ${driver}/${scope}, expected overlay/swarm. Remove or rename it before deploying."
-    fi
-
-    ok "Docker overlay network ${network_name} already exists"
+  if ! docker network inspect "$network_name" >/dev/null 2>&1; then
     return
   fi
 
-  log "Creating persistent Docker overlay network: ${network_name}"
-  docker network create --driver overlay --attachable "$network_name" >/dev/null
-  ok "Created Docker overlay network ${network_name}"
+  driver="$(docker network inspect "$network_name" --format '{{.Driver}}')"
+  scope="$(docker network inspect "$network_name" --format '{{.Scope}}')"
+
+  if [[ "$driver" != "overlay" || "$scope" != "swarm" ]]; then
+    fail "Docker network ${network_name} exists but is ${driver}/${scope}, expected overlay/swarm. Remove or rename it before deploying."
+  fi
+
+  ok "Docker overlay network ${network_name} is valid"
 }
 
 wait_for_stack_removed() {

@@ -237,7 +237,7 @@ R2_BUCKET=...
 After editing, re-render and redeploy:
 ```bash
 sudo ./setup.sh --no-start      # regenerate configs
-./scripts/deploy.sh             # creates/validates the external infra network, then deploys
+./scripts/deploy.sh             # validates any existing infra network, then deploys
 ```
 
 ## Ports
