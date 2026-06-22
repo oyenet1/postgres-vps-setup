@@ -147,6 +147,7 @@ parse_args() {
 install_docker() {
   if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
     ok "Docker and Docker Compose are already installed"
+    fix_containerd_storage
     return
   fi
 
@@ -164,6 +165,39 @@ install_docker() {
 
   systemctl enable docker >/dev/null 2>&1 || true
   systemctl start docker >/dev/null 2>&1 || true
+
+  fix_containerd_storage
+}
+
+fix_containerd_storage() {
+  local snap_dir="/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots"
+  local containerd_dir="/var/lib/containerd"
+
+  if [[ -d "$snap_dir" ]]; then
+    return
+  fi
+
+  if ! command -v systemctl >/dev/null 2>&1; then
+    warn "systemctl not available; skipping containerd storage fix"
+    return
+  fi
+
+  log "Containerd overlayfs snapshotter directory missing, recreating"
+
+  mkdir -p "$snap_dir"
+  mkdir -p "$containerd_dir/io.containerd.snapshotter.v1.native/snapshots"
+  chown -R root:root "$containerd_dir" 2>/dev/null || true
+
+  systemctl restart containerd 2>/dev/null || warn "could not restart containerd"
+  systemctl restart docker 2>/dev/null || warn "could not restart docker"
+
+  sleep 2
+
+  if [[ -d "$snap_dir" ]]; then
+    ok "Containerd storage repaired"
+  else
+    warn "Containerd storage dir still missing; docker build may fail"
+  fi
 }
 
 configure_firewall() {
@@ -696,6 +730,10 @@ main() {
 
   [[ -f docker-compose.yml ]] || fail "docker-compose.yml not found in ${TARGET_DIR}"
   [[ -f .env.example ]] || fail ".env.example not found in ${TARGET_DIR}"
+
+  if [[ "$START_STACK" == "true" ]] && command -v docker >/dev/null 2>&1; then
+    fix_containerd_storage
+  fi
 
   prepare_env
   render_pgbouncer_config
