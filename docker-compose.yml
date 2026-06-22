@@ -4,33 +4,10 @@ x-logging: &default-logging
     max-size: "10m"
     max-file: "3"
 
-secrets:
-  pgbouncer_userlist:
-    file: ./pgbouncer/userlist.generated.txt
-
-configs:
-  pgbouncer_ini:
-    file: ./pgbouncer/pgbouncer.ini
-  pg_hba:
-    file: ./postgres_config/pg_hba.conf
-  postgresql_conf:
-    file: ./postgres_config/postgresql.conf
-  pgadmin_servers:
-    file: ./pgadmin/servers.json
-  sentinel_entrypoint:
-    file: ./redis/sentinel-entrypoint.sh
-  haproxy_cfg:
-    file: ./redis/haproxy.generated.cfg
-  backup_script:
-    file: ./templates/backup.sh
-  rclone_conf:
-    file: ./config/rclone/rclone.generated.conf
-  initdb_sql:
-    file: ./initdb/01-bootstrap.sql
-
 services:
   postgres:
-    image: ${POSTGRES_IMAGE:-infra/postgres:latest}
+    image: postgis/postgis:${POSTGRES_IMAGE_TAG:-17-3.5-alpine}
+    container_name: dbstack-postgres
     logging: *default-logging
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
@@ -40,106 +17,75 @@ services:
     command:
       - postgres
       - -c
-      - config_file=/etc/postgresql/postgresql.conf
-      - -c
-      - hba_file=/etc/postgresql/pg_hba.conf
+      - shared_preload_libraries=pg_stat_statements
       - -c
       - max_connections=${POSTGRES_MAX_CONNECTIONS:-300}
       - -c
       - shared_buffers=${POSTGRES_SHARED_BUFFERS:-256MB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
     ports:
-      - target: 5432
-        published: ${POSTGRES_PORT:-5432}
-        protocol: tcp
-        mode: host
+      - "${POSTGRES_BIND_ADDR:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     networks:
-      - infra
+      - dbstack
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      test:
+        ["CMD-SHELL", 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 30s
-    configs:
-      - source: initdb_sql
-        target: /docker-entrypoint-initdb.d/01-bootstrap.sql
-        mode: 0444
-      - source: pg_hba
-        target: /etc/postgresql/pg_hba.conf
-        mode: 0444
-      - source: postgresql_conf
-        target: /etc/postgresql/postgresql.conf
-        mode: 0644
-    deploy:
-      mode: replicated
-      replicas: 1
-      restart_policy:
-        condition: any
-        delay: 5s
-      placement:
-        constraints:
-          - node.role == manager
+    restart: unless-stopped
 
   pgbouncer:
     image: edoburu/pgbouncer:${PGBOUNCER_IMAGE_TAG:-v1.25.1-p0}
+    container_name: dbstack-pgbouncer
     logging: *default-logging
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/userlist.generated.txt:/etc/pgbouncer/userlist.txt:ro
     ports:
-      - target: 6432
-        published: ${PGBOUNCER_PORT:-6543}
-        protocol: tcp
-        mode: host
+      - "${PGBOUNCER_BIND_ADDR:-0.0.0.0}:${PGBOUNCER_PORT:-6543}:6432"
     networks:
-      - infra
+      - dbstack
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 6432"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 20s
-    configs:
-      - source: pgbouncer_ini
-        target: /etc/pgbouncer/pgbouncer.ini
-        mode: 0444
-    secrets:
-      - source: pgbouncer_userlist
-        target: /etc/pgbouncer/userlist.txt
-        mode: 0400
-    deploy:
-      mode: replicated
-      replicas: 1
-      restart_policy:
-        condition: any
+    restart: unless-stopped
 
   pgadmin:
     image: dpage/pgadmin4:${PGADMIN_IMAGE_TAG:-latest}
+    container_name: dbstack-pgadmin
     logging: *default-logging
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
       PGADMIN_CONFIG_SERVER_MODE: "True"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
     volumes:
       - pgadmin_data:/var/lib/pgadmin
+      - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
     ports:
-      - target: 80
-        published: ${PGADMIN_PORT:-5050}
-        protocol: tcp
-        mode: host
+      - "${PGADMIN_BIND_ADDR:-127.0.0.1}:${PGADMIN_PORT:-5050}:80"
     networks:
-      - infra
-    configs:
-      - source: pgadmin_servers
-        target: /pgadmin4/servers.json
-        mode: 0444
-    deploy:
-      mode: replicated
-      replicas: 1
-      restart_policy:
-        condition: any
+      - dbstack
+    restart: unless-stopped
 
   redis-master:
     image: redis:${REDIS_IMAGE_TAG:-7-alpine}
+    container_name: dbstack-redis-master
     logging: *default-logging
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
@@ -154,24 +100,28 @@ services:
     volumes:
       - redis_master_data:/data
     networks:
-      - infra
+      - dbstack
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" --no-auth-warning ping | grep -q PONG"]
+      test:
+        [
+          "CMD-SHELL",
+          'redis-cli -a "$${REDIS_PASSWORD}" --no-auth-warning ping | grep -q PONG',
+        ]
       interval: 10s
       timeout: 3s
       retries: 10
       start_period: 10s
-    deploy:
-      mode: replicated
-      replicas: 1
-      restart_policy:
-        condition: any
+    restart: unless-stopped
 
   redis-replica:
     image: redis:${REDIS_IMAGE_TAG:-7-alpine}
+    container_name: dbstack-redis-replica
     logging: *default-logging
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
+    depends_on:
+      redis-master:
+        condition: service_healthy
     command:
       - redis-server
       - --replicaof
@@ -188,129 +138,294 @@ services:
     volumes:
       - redis_replica_data:/data
     networks:
-      - infra
+      - dbstack
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" --no-auth-warning ping | grep -q PONG"]
+      test:
+        [
+          "CMD-SHELL",
+          'redis-cli -a "$${REDIS_PASSWORD}" --no-auth-warning ping | grep -q PONG',
+        ]
       interval: 10s
       timeout: 3s
       retries: 10
       start_period: 15s
-    deploy:
-      mode: replicated
-      replicas: 1
-      restart_policy:
-        condition: any
+    restart: unless-stopped
 
-  redis-sentinel:
+  redis-sentinel-1:
     image: redis:${REDIS_IMAGE_TAG:-7-alpine}
+    container_name: dbstack-redis-sentinel-1
     logging: *default-logging
+    depends_on:
+      redis-master:
+        condition: service_healthy
+      redis-replica:
+        condition: service_healthy
+    command: ["/bin/sh", "/redis/sentinel-entrypoint.sh"]
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_SENTINEL_MASTER_NAME: ${REDIS_SENTINEL_MASTER_NAME:-dbmaster}
-    command: ["/bin/sh", "/redis/sentinel-entrypoint.sh"]
+    volumes:
+      - ./redis/sentinel-entrypoint.sh:/redis/sentinel-entrypoint.sh:ro
     networks:
-      - infra
-    configs:
-      - source: sentinel_entrypoint
-        target: /redis/sentinel-entrypoint.sh
-        mode: 0555
-    deploy:
-      mode: replicated
-      replicas: 3
-      restart_policy:
-        condition: any
+      - dbstack
+    restart: unless-stopped
+
+  redis-sentinel-2:
+    image: redis:${REDIS_IMAGE_TAG:-7-alpine}
+    container_name: dbstack-redis-sentinel-2
+    logging: *default-logging
+    depends_on:
+      redis-master:
+        condition: service_healthy
+      redis-replica:
+        condition: service_healthy
+    command: ["/bin/sh", "/redis/sentinel-entrypoint.sh"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_SENTINEL_MASTER_NAME: ${REDIS_SENTINEL_MASTER_NAME:-dbmaster}
+    volumes:
+      - ./redis/sentinel-entrypoint.sh:/redis/sentinel-entrypoint.sh:ro
+    networks:
+      - dbstack
+    restart: unless-stopped
+
+  redis-sentinel-3:
+    image: redis:${REDIS_IMAGE_TAG:-7-alpine}
+    container_name: dbstack-redis-sentinel-3
+    logging: *default-logging
+    depends_on:
+      redis-master:
+        condition: service_healthy
+      redis-replica:
+        condition: service_healthy
+    command: ["/bin/sh", "/redis/sentinel-entrypoint.sh"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_SENTINEL_MASTER_NAME: ${REDIS_SENTINEL_MASTER_NAME:-dbmaster}
+    volumes:
+      - ./redis/sentinel-entrypoint.sh:/redis/sentinel-entrypoint.sh:ro
+    networks:
+      - dbstack
+    restart: unless-stopped
 
   redis-proxy:
     image: haproxy:${HAPROXY_IMAGE_TAG:-2.9-alpine}
+    container_name: dbstack-redis-proxy
     logging: *default-logging
+    depends_on:
+      redis-master:
+        condition: service_healthy
+      redis-replica:
+        condition: service_healthy
+    volumes:
+      - ./redis/haproxy.generated.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     ports:
-      - target: 6379
-        published: ${REDIS_PORT:-6379}
-        protocol: tcp
-        mode: host
+      - "${REDIS_BIND_ADDR:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
     networks:
-      - infra
+      - dbstack
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 6379"]
       interval: 10s
       timeout: 3s
       retries: 10
       start_period: 15s
-    configs:
-      - source: haproxy_cfg
-        target: /usr/local/etc/haproxy/haproxy.cfg
-        mode: 0444
-    deploy:
-      mode: replicated
-      replicas: 1
-      restart_policy:
-        condition: any
+    restart: unless-stopped
 
   backup:
-    image: ${INFRA_BACKUP_IMAGE:-infra/backup:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.backup
+      args:
+        POSTGRES_CLIENT_IMAGE_TAG: ${POSTGRES_CLIENT_IMAGE_TAG:-17-alpine}
+    image: dbstack-backup:local
+    container_name: dbstack-backup
     logging: *default-logging
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      BACKUP_RETENTION: ${BACKUP_RETENTION:-2}
+      BACKUP_RETENTION: ${BACKUP_RETENTION:-7}
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-43200}
       R2_BACKUP_ENABLED: ${R2_BACKUP_ENABLED:-false}
       R2_BUCKET: ${R2_BUCKET:-}
-      R2_PREFIX: ${R2_PREFIX:-infra/}
-      R2_MAX_BACKUPS_PER_DB: ${R2_MAX_BACKUPS_PER_DB:-2}
+      R2_PREFIX: ${R2_PREFIX:-dbstack/}
+      R2_MAX_BACKUPS_PER_DB: ${R2_MAX_BACKUPS_PER_DB:-7}
       RCLONE_CONFIG: /config/rclone/rclone.conf
     volumes:
-      - backup_data:/backups
-    command: ["/bin/sh", "-c", "while true; do /bin/sh /scripts/backup.sh; sleep ${BACKUP_INTERVAL_SECONDS:-43200}; done"]
-    networks:
-      - infra
-    configs:
-      - source: backup_script
-        target: /scripts/backup.sh
-        mode: 0555
-      - source: rclone_conf
-        target: /config/rclone/rclone.conf
-        mode: 0400
-    deploy:
-      mode: replicated
-      replicas: 1
-      restart_policy:
-        condition: any
-
-  cloudflared:
-    image: cloudflare/cloudflared:${CLOUDFLARED_IMAGE_TAG:-latest}
-    logging: *default-logging
-    entrypoint: ["/bin/sh", "-c"]
+      - ./backups:/backups
+      - ./config/rclone/rclone.generated.conf:/config/rclone/rclone.conf:ro
+      - ./templates/backup.sh:/scripts/backup.sh:ro
     command:
-      - |
-        if [ -z "$$TUNNEL_TOKEN" ]; then
-          echo "[cloudflared] TUNNEL_TOKEN not set, exiting"
-          sleep infinity
-        fi
-        exec tunnel --no-autoupdate run
-    environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+      [
+        "/bin/sh",
+        "-c",
+        "while true; do /bin/sh /scripts/backup.sh; sleep ${BACKUP_INTERVAL_SECONDS:-43200}; done",
+      ]
     networks:
-      - infra
-    deploy:
-      mode: replicated
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-        max_attempts: 3
-      placement:
-        constraints:
-          - node.role == manager
+      - dbstack
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:${POSTGRES_EXPORTER_IMAGE_TAG:-v0.17.1}
+    container_name: dbstack-postgres-exporter
+    logging: *default-logging
+    profiles: ["monitoring"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
+    networks:
+      - dbstack
+    restart: unless-stopped
+
+  redis-exporter:
+    image: oliver006/redis_exporter:${REDIS_EXPORTER_IMAGE_TAG:-v1.63.0}
+    container_name: dbstack-redis-exporter
+    logging: *default-logging
+    profiles: ["monitoring"]
+    depends_on:
+      redis-proxy:
+        condition: service_healthy
+    environment:
+      REDIS_ADDR: redis://redis-proxy:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    networks:
+      - dbstack
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:${NODE_EXPORTER_IMAGE_TAG:-v1.8.2}
+    container_name: dbstack-node-exporter
+    logging: *default-logging
+    profiles: ["monitoring"]
+    command:
+      - --path.rootfs=/host
+    volumes:
+      - /:/host:ro,rslave
+    networks:
+      - dbstack
+    restart: unless-stopped
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:${CADVISOR_IMAGE_TAG:-v0.49.1}
+    container_name: dbstack-cadvisor
+    logging: *default-logging
+    profiles: ["monitoring"]
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - dbstack
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:${LOKI_IMAGE_TAG:-3.0.0}
+    container_name: dbstack-loki
+    logging: *default-logging
+    profiles: ["monitoring"]
+    command: -config.file=/etc/loki/loki.yml
+    volumes:
+      - ./monitoring/loki.yml:/etc/loki/loki.yml:ro
+      - loki_data:/loki
+    ports:
+      - "${LOKI_BIND_ADDR:-127.0.0.1}:${LOKI_PORT:-3100}:3100"
+    networks:
+      - dbstack
+    restart: unless-stopped
+
+  alloy:
+    image: grafana/alloy:${ALLOY_IMAGE_TAG:-v1.8.3}
+    container_name: dbstack-alloy
+    logging: *default-logging
+    profiles: ["monitoring"]
+    depends_on:
+      - loki
+    command: run /etc/alloy/config.alloy
+    volumes:
+      - ./monitoring/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - dbstack
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:${ALERTMANAGER_IMAGE_TAG:-v0.27.0}
+    container_name: dbstack-alertmanager
+    logging: *default-logging
+    profiles: ["monitoring"]
+    volumes:
+      - ./monitoring/alertmanager.generated.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    ports:
+      - "${ALERTMANAGER_BIND_ADDR:-127.0.0.1}:${ALERTMANAGER_PORT:-9093}:9093"
+    networks:
+      - dbstack
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_IMAGE_TAG:-v2.53.3}
+    container_name: dbstack-prometheus
+    logging: *default-logging
+    profiles: ["monitoring"]
+    depends_on:
+      - alertmanager
+      - postgres-exporter
+      - redis-exporter
+      - node-exporter
+      - cadvisor
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+      - --web.enable-lifecycle
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alert.rules.yml:/etc/prometheus/alert.rules.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "${PROMETHEUS_BIND_ADDR:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
+    networks:
+      - dbstack
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:${GRAFANA_IMAGE_TAG:-11.2.0}
+    container_name: dbstack-grafana
+    logging: *default-logging
+    profiles: ["monitoring"]
+    depends_on:
+      - prometheus
+      - loki
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "${GRAFANA_BIND_ADDR:-127.0.0.1}:${GRAFANA_PORT:-3030}:3000"
+    networks:
+      - dbstack
+    restart: unless-stopped
 
 networks:
-  infra:
-    driver: overlay
-    attachable: true
+  dbstack:
+    driver: bridge
 
 volumes:
   postgres_data:
   redis_master_data:
   redis_replica_data:
   pgadmin_data:
-  backup_data:
+  prometheus_data:
+  grafana_data:
+  alertmanager_data:
+  loki_data:

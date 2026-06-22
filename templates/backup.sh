@@ -6,6 +6,9 @@ set -eu
 
 BACKUP_DIR=/backups
 LOCK_FILE="${BACKUP_DIR}/.backup.lock"
+DB_HOST="${DB_HOST:-postgres}"
+DB_PORT="${DB_PORT:-5432}"
+RCLONE_CONFIG="${RCLONE_CONFIG:-/config/rclone/rclone.conf}"
 RETENTION="${BACKUP_RETENTION:-2}"
 R2_ENABLED="${R2_BACKUP_ENABLED:-false}"
 R2_REMOTE="${R2_REMOTE:-r2}"
@@ -25,7 +28,7 @@ trap 'rm -rf "$LOCK_FILE"' EXIT
 
 export PGPASSWORD="$POSTGRES_PASSWORD"
 
-DATABASES="$(psql -h postgres -p 5432 -U "$POSTGRES_USER" -d postgres -Atc "SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate ORDER BY datname")"
+DATABASES="$(psql -h "$DB_HOST" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -Atc "SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate ORDER BY datname")"
 
 if [ -z "$DATABASES" ]; then
   echo "[backup] no databases found"
@@ -56,7 +59,7 @@ fi
 for db in $DATABASES; do
   file="${RUN_DIR}/${db}.sql.gz"
   echo "[backup] dumping $db"
-  pg_dump -h postgres -p 5432 -U "$POSTGRES_USER" -d "$db" | gzip > "$file"
+  pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$db" | gzip > "$file"
 
   if [ ! -s "$file" ]; then
     echo "[backup] backup file is empty for database: $db"
@@ -70,8 +73,8 @@ for db in $DATABASES; do
     echo "[backup] uploading $db to R2: ${R2_PREFIX}${db}/${TIMESTAMP}.sql.gz"
     rclone --config "$RCLONE_CONFIG" copyto "$file" "$remote_file"
 
-    rclone --config "$RCLONE_CONFIG" lsf "$remote_dir/" --files-only --format "ts" 2>/dev/null \
-      | sort -rn \
+    rclone --config "$RCLONE_CONFIG" lsf "$remote_dir/" --files-only 2>/dev/null \
+      | sort -r \
       | tail -n +"$((R2_MAX + 1))" \
       | while IFS= read -r old; do
           [ -n "$old" ] && rclone --config "$RCLONE_CONFIG" deletefile "${remote_dir}/${old}" || true

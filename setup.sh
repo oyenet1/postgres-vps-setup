@@ -618,12 +618,17 @@ configure_database_auth() {
   pg_image="postgres:${POSTGRES_CLIENT_IMAGE_TAG:-17-alpine}"
 
   log "Waiting for PostgreSQL"
-  for _ in $(seq 1 60); do
+  local attempts=0
+  while [[ "$attempts" -lt 60 ]]; do
     if docker run --rm --network infra "$pg_image" pg_isready -h postgres -U "$pg_user" -d "$pg_db" >/dev/null 2>&1; then
       break
     fi
+    attempts=$((attempts + 1))
     sleep 2
   done
+  if [[ "$attempts" -eq 60 ]]; then
+    fail "PostgreSQL did not become ready after 120s"
+  fi
 
   docker run --rm -i --network infra -e PGPASSWORD="$pg_password" "$pg_image" \
     psql -h postgres -U "$pg_user" -d postgres -v ON_ERROR_STOP=1 <<SQL
