@@ -18,6 +18,17 @@ R2_MAX="${R2_MAX_BACKUPS_PER_DB:-2}"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 RUN_DIR="${BACKUP_DIR}/${TIMESTAMP}"
 
+export PGPASSWORD="$POSTGRES_PASSWORD"
+
+echo "[backup] waiting for postgres at ${DB_HOST}:${DB_PORT}"
+for i in $(seq 1 30); do
+  if psql -h "$DB_HOST" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -c 'SELECT 1' >/dev/null 2>&1; then
+    echo "[backup] postgres is ready"
+    break
+  fi
+  sleep 2
+done
+
 mkdir -p "$BACKUP_DIR"
 
 if ! mkdir "$LOCK_FILE" 2>/dev/null; then
