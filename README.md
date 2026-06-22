@@ -40,7 +40,7 @@ sudo ./setup.sh -s 22
 
 ```bash
 sudo ./setup.sh -s 22            # deploy, SSH port 22
-sudo ./setup.sh -s 22 -m         # also deploy monitoring (Prometheus/Grafana/Loki)
+sudo ./setup.sh -s 22            # deploy (monitoring always included)
 sudo ./setup.sh --no-start       # render config files only, no deploy
 ```
 
