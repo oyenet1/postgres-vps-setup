@@ -129,7 +129,7 @@ services:
     secrets:
       - source: pgbouncer_userlist
         target: /etc/pgbouncer/userlist.txt
-        mode: 0400
+        mode: 0444
     deploy:
       mode: replicated
       replicas: 1
