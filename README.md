@@ -314,4 +314,16 @@ docker system prune -a --volumes -f
 - All passwords are auto-generated and stored in `.env` (gitignored)
 - Single-node Swarm by default; add workers with `docker swarm join`
 - For multi-node, `postgres_data` and `backup_data` need shared storage (NFS/EFS)
-- Built-in extensions: postgis, postgis_topology, pg_stat_statements, pg_trgm, unaccent, btree_gin, btree_gist, hstore, ltree, citext, pgcrypto, uuid-ossp
+- Built-in extensions: postgis, postgis_topology, vector (pgvector), pg_cron, pg_stat_statements, pg_trgm, unaccent, btree_gin, btree_gist, hstore, ltree, citext, pgcrypto, uuid-ossp
+
+## Extensions on new databases
+
+The init script (`initdb/01-bootstrap.sql`) installs all supported extensions into both the default `postgres` database and the `template1` template database.
+
+**What this means for you:**
+
+- **New databases created via pgAdmin, `CREATE DATABASE`, or any client inherit extensions automatically** — they're cloned from `template1` by default, so postgis, vector, pg_cron, etc. are pre-enabled.
+- **No need to run `CREATE EXTENSION ...` manually per database.**
+- **App-side auto-bootstrap:** the lodgestatus server also runs `CREATE EXTENSION IF NOT EXISTS` for its required extensions on startup, so any database it connects to is guaranteed to have them (assuming the DB user has `CREATE EXTENSION` privilege). For databases the app never touches, the `template1` inheritance is what keeps them ready.
+
+If an extension package is missing in the image (e.g. you switch to a plain `postgres` image without postgis), the init script logs a NOTICE and continues — the database still works, just without that extension.
