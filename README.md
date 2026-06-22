@@ -97,8 +97,6 @@ R2_SECRET_ACCESS_KEY=...
 R2_BUCKET=...
 
 MONITORING_ENABLED=false        # set true to deploy Prometheus/Grafana/etc
-
-CLOUDFLARE_TUNNEL_TOKEN=...     # from https://one.dash.cloudflare.com (optional)
 ```
 
 After editing, re-render and redeploy:
