@@ -1,26 +1,36 @@
+// ─── Alloy log shipping for the infra stack ────────────────────
+// Discovers every running container, extracts labels, ships logs to Loki.
+// The relabel rules add three labels to every log line:
+//   job         = "docker"           (Loki stream selector)
+//   container   = <container name>   (which container)
+//   service     = <Swarm stack ns>   (which app, e.g. "lodgestatus")
+//   swarm_service = <full svc name>  (e.g. "lodgestatus_lodgestatus_app")
+// The `service` label is the one Grafana queries by default.
+
 discovery.docker "containers" {
   host = "unix:///var/run/docker.sock"
 }
 
 discovery.relabel "add_labels" {
   targets = discovery.docker.containers.targets
+
   rule {
     target_label = "job"
     replacement  = "docker"
   }
+
   rule {
     source_labels = ["__meta_docker_container_name"]
     regex         = "^/(.+)$"
     target_label  = "container"
     replacement   = "$1"
   }
-  # Extract service name from the Swarm stack label so logs can be
-  # filtered per app in Grafana (e.g. {service="lodgestatus"}).
-  # Swarm sets com.docker.stack.namespace automatically on every service.
+
   rule {
     source_labels = ["__meta_docker_container_label_com_docker_stack_namespace"]
     target_label  = "service"
   }
+
   rule {
     source_labels = ["__meta_docker_container_label_com_docker_swarm_service_name"]
     target_label  = "swarm_service"
@@ -28,8 +38,8 @@ discovery.relabel "add_labels" {
 }
 
 loki.source.docker "containers" {
-  host    = "unix:///var/run/docker.sock"
-  targets = discovery.relabel.add_labels.output
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.add_labels.output
   forward_to = [loki.write.local.receiver]
 }
 

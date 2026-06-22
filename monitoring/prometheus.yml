@@ -42,16 +42,13 @@ scrape_configs:
   #         "service": "<app-name>",
   #         "env": "production",
   #         "metrics_path": "/v1/metrics",
-  #         "scheme": "http",
-  #         "bearer_token": "<optional-token>"
+  #         "scheme": "http"
   #       }
   #     }
   #   ]
   #
-  # `bearer_token` is optional. Drop it if your app's /v1/metrics
-  # is unauthenticated.
-  #
-  # Reload prometheus after editing:  curl -X POST http://localhost:9090/-/reload
+  # Reload prometheus after editing:
+  #   curl -X POST http://YOUR_VPS_IP:9090/-/reload
   - job_name: apps
     file_sd_configs:
       - files:
