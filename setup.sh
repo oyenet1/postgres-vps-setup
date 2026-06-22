@@ -291,6 +291,16 @@ render_pgbouncer_config() {
     chmod 600 pgbouncer/pgbouncer-key.pem
   fi
 
+  if [[ ! -f postgres_config/server-cert.pem || ! -f postgres_config/server-key.pem ]]; then
+    log "Generating self-signed cert for PostgreSQL"
+    openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+      -keyout postgres_config/server-key.pem \
+      -out postgres_config/server-cert.pem \
+      -subj "/CN=postgres/O=Infra" \
+      -addext "subjectAltName=DNS:postgres,DNS:localhost,IP:127.0.0.1,IP:$(detect_public_ip)"
+    chmod 600 postgres_config/server-key.pem
+  fi
+
   cat > pgbouncer/pgbouncer.ini <<EOF
 [databases]
 * = host=postgres port=5432 auth_user=${auth_user}
