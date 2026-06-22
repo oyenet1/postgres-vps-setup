@@ -68,13 +68,13 @@ for db in $DATABASES; do
     remote_dir="${R2_REMOTE}:${R2_BUCKET}/${R2_PREFIX}${db}"
     remote_file="${remote_dir}/${TIMESTAMP}.sql.gz"
     echo "[backup] uploading $db to R2: ${R2_PREFIX}${db}/${TIMESTAMP}.sql.gz"
-    rclone copyto "$file" "$remote_file"
+    rclone --config "$RCLONE_CONFIG" copyto "$file" "$remote_file"
 
-    rclone lsf "$remote_dir/" --files-only 2>/dev/null \
-      | sort -r \
+    rclone --config "$RCLONE_CONFIG" lsf "$remote_dir/" --files-only --format "ts" 2>/dev/null \
+      | sort -rn \
       | tail -n +"$((R2_MAX + 1))" \
       | while IFS= read -r old; do
-          [ -n "$old" ] && rclone deletefile "${remote_dir}/${old}" || true
+          [ -n "$old" ] && rclone --config "$RCLONE_CONFIG" deletefile "${remote_dir}/${old}" || true
         done
   fi
 done

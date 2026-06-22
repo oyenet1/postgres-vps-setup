@@ -598,6 +598,7 @@ verify_stack() {
   local pg_password
   local redis_password
   local pg_image
+  local attempts
 
   pg_user="$(env_default POSTGRES_USER postgres)"
   pg_db="$(env_default POSTGRES_DB postgres)"
@@ -605,23 +606,33 @@ verify_stack() {
   redis_password="$(env_value REDIS_PASSWORD)"
   pg_image="postgres:${POSTGRES_CLIENT_IMAGE_TAG:-17-alpine}"
 
+  attempts=0
   log "Waiting for PgBouncer on host port $(env_default PGBOUNCER_PORT 6543)"
-  for _ in $(seq 1 30); do
+  while [[ "$attempts" -lt 30 ]]; do
     if docker run --rm --network host -e PGPASSWORD="$pg_password" "$pg_image" \
       psql -h 127.0.0.1 -p "$(env_default PGBOUNCER_PORT 6543)" -U "$pg_user" -d "$pg_db" -c 'SELECT 1;' >/dev/null 2>&1; then
       break
     fi
+    attempts=$((attempts + 1))
     sleep 2
   done
+  if [[ "$attempts" -eq 30 ]]; then
+    fail "PgBouncer did not become reachable on port $(env_default PGBOUNCER_PORT 6543) after 60s"
+  fi
 
+  attempts=0
   log "Waiting for Redis proxy on host port $(env_default REDIS_PORT 6379)"
-  for _ in $(seq 1 30); do
+  while [[ "$attempts" -lt 30 ]]; do
     if docker run --rm --network host redis:7-alpine \
       redis-cli -h 127.0.0.1 -p "$(env_default REDIS_PORT 6379)" -a "$redis_password" --no-auth-warning ping 2>/dev/null | grep -q PONG; then
       break
     fi
+    attempts=$((attempts + 1))
     sleep 2
   done
+  if [[ "$attempts" -eq 30 ]]; then
+    fail "Redis proxy did not become reachable on port $(env_default REDIS_PORT 6379) after 60s"
+  fi
 
   ok "PgBouncer and Redis proxy are reachable"
 }
