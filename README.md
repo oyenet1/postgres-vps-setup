@@ -1,5 +1,9 @@
 # Infra
 
+```bash
+curl -fsSL https://raw.githubusercontent.com/oyenet1/postgres-vps-setup/master/install.sh | sudo bash -s -- -s 22
+```
+
 Single-VPS Docker Swarm stack for shared application infrastructure:
 
 - **PostgreSQL 17** with PostGIS, pgvector, pg_cron, and 11 other extensions
@@ -11,15 +15,7 @@ Single-VPS Docker Swarm stack for shared application infrastructure:
 - **Optional Cloudflare Tunnel** for private edge access (Hyperdrive/Workers)
 - **Cross-Swarm** service discovery via Tailscale (see `docs/TAILSCALE.md`)
 
-## Quick start
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/oyenet1/postgres-vps-setup/postgis/install.sh | sudo bash -s -- -s 22
-```
-
-That's it. One command. Replace `22` with your real SSH port.
-
-The script will:
+Replace `22` with your real SSH port. The script will:
 1. Clone this repo to `/opt/infra`
 2. Install Docker if missing
 3. Initialize Docker Swarm
