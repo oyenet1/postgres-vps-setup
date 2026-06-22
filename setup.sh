@@ -593,6 +593,11 @@ start_stack() {
   docker stack rm infra 2>/dev/null || true
   sleep 5
 
+  log "Loading environment from .env"
+  set -a
+  source .env
+  set +a
+
   if [[ "$(env_default MONITORING_ENABLED false)" == "true" ]]; then
     log "Deploying stack with monitoring"
     ${compose_cmd} -c docker-compose.monitoring.yml infra
