@@ -110,7 +110,7 @@ services:
         mode: 0444
       - source: postgres_key
         target: /etc/postgresql/server-key.pem
-        mode: 0400
+        mode: 0444
     deploy:
       mode: replicated
       replicas: 1
@@ -146,7 +146,7 @@ services:
         mode: 0444
       - source: pgbouncer_key
         target: /etc/pgbouncer/server-key.pem
-        mode: 0400
+        mode: 0444
     secrets:
       - source: pgbouncer_userlist
         target: /etc/pgbouncer/userlist.txt
