@@ -7,10 +7,6 @@ cd "$SCRIPT_DIR"
 STACK_NAME="${STACK_NAME:-infra}"
 COMPOSE_FILES=(-c docker-compose.yml)
 
-if [[ "${MONITORING_ENABLED:-false}" == "true" ]]; then
-  COMPOSE_FILES+=(-c docker-compose.monitoring.yml)
-fi
-
 NODE_STATE="$(docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null || true)"
 IS_MANAGER="$(docker info --format '{{.Swarm.ControlAvailable}}' 2>/dev/null || true)"
 

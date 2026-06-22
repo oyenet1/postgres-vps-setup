@@ -18,7 +18,6 @@ Usage: sudo ./setup.sh [options]
 Options:
   -d DIR       deployment directory, default: current directory
   -s PORT      SSH port to allow if UFW is available
-  -m           enable monitoring profile
   --no-start   render files only, do not start containers
   -h           show this help
 EOF
@@ -124,10 +123,7 @@ parse_args() {
         SSH_PORT="$2"
         shift 2
         ;;
-      -m|--monitoring)
-        ENABLE_MONITORING="true"
-        shift
-        ;;
+
       --no-start)
         START_STACK="false"
         shift
@@ -251,7 +247,6 @@ prepare_env() {
   set_default_env R2_BACKUP_ENABLED false
   set_default_env R2_PREFIX infra/
   set_default_env R2_MAX_BACKUPS_PER_DB 2
-  set_default_env MONITORING_ENABLED false
   set_default_env GRAFANA_PORT 3030
   set_default_env ALERT_FROM alerts@example.com
   set_default_env SMTP_SMARTHOST smtp.gmail.com:587
@@ -261,10 +256,6 @@ prepare_env() {
   ensure_env_value PGADMIN_PASSWORD
   ensure_env_value REDIS_PASSWORD
   ensure_env_value GRAFANA_PASSWORD
-
-  if [[ -n "$ENABLE_MONITORING" ]]; then
-    set_env MONITORING_ENABLED "$ENABLE_MONITORING"
-  fi
 }
 
 render_pgbouncer_config() {
@@ -770,6 +761,10 @@ pgAdmin:
   URL: http://127.0.0.1:$(env_default PGADMIN_PORT 5050)
   Email: $(env_default PGADMIN_EMAIL admin@example.com)
 
+Grafana:
+  URL: http://${host}:$(env_default GRAFANA_PORT 3030)
+  User: $(env_default GRAFANA_USER admin)
+
 Backups:
   Path: ${TARGET_DIR}/backups
   Shape: one timestamped folder, one .sql.gz per database
@@ -778,7 +773,7 @@ Backups:
 Useful commands:
   docker stack ps infra
   docker service logs infra_pgbouncer -f
-  docker stack deploy -c docker-compose.yml -c docker-compose.monitoring.yml infra
+  docker stack deploy -c docker-compose.yml infra
 EOF
 }
 
