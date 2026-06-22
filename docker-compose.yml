@@ -71,7 +71,7 @@ services:
         mode: 0444
       - source: postgresql_conf
         target: /etc/postgresql/postgresql.conf
-        mode: 0444
+        mode: 0644
     deploy:
       mode: replicated
       replicas: 1
@@ -281,16 +281,24 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:${CLOUDFLARED_IMAGE_TAG:-latest}
     logging: *default-logging
-    command: tunnel --no-autoupdate run
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -z "$$TUNNEL_TOKEN" ]; then
+          echo "[cloudflared] TUNNEL_TOKEN not set, exiting"
+          sleep infinity
+        fi
+        exec tunnel --no-autoupdate run
     environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
     networks:
       - infra
     deploy:
       mode: replicated
       replicas: 1
       restart_policy:
-        condition: unless-stopped
+        condition: on-failure
+        max_attempts: 3
       placement:
         constraints:
           - node.role == manager
