@@ -288,40 +288,6 @@ services:
       restart_policy:
         condition: any
 
-  cloudflared:
-    image: cloudflare/cloudflared:${CLOUDFLARED_IMAGE_TAG:-latest}
-    logging: *default-logging
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        if [ -n "$$TUNNEL_TOKEN" ]; then
-          exec tunnel --no-autoupdate run
-        elif [ -n "$$CLOUDFLARE_EMAIL" ] && [ -n "$$CLOUDFLARE_API_KEY" ] && [ -n "$$TUNNEL_NAME" ]; then
-          cloudflared tunnel login --api-key "$$CLOUDFLARE_EMAIL" "$$CLOUDFLARE_API_KEY"
-          cloudflared tunnel create "$$TUNNEL_NAME" 2>/dev/null || true
-          exec cloudflared tunnel run "$$TUNNEL_NAME"
-        else
-          echo "[cloudflared] No auth method configured."
-          echo "  Set TUNNEL_TOKEN, or (CLOUDFLARE_EMAIL + CLOUDFLARE_API_KEY + TUNNEL_NAME)"
-          sleep infinity
-        fi
-    environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
-      CLOUDFLARE_EMAIL: ${CLOUDFLARE_EMAIL:-}
-      CLOUDFLARE_API_KEY: ${CLOUDFLARE_API_KEY:-}
-      TUNNEL_NAME: ${CLOUDFLARE_TUNNEL_NAME:-infra-db}
-    networks:
-      - infra
-    deploy:
-      mode: replicated
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-        max_attempts: 3
-      placement:
-        constraints:
-          - node.role == manager
-
 networks:
   infra:
     driver: overlay
