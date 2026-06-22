@@ -496,11 +496,16 @@ start_stack() {
   local compose_cmd="docker stack deploy -c docker-compose.yml"
   local backup_image
   local pg_image
+  local build_pg_image="true"
 
   backup_image="${INFRA_BACKUP_IMAGE:-infra/backup:latest}"
   pg_image="${POSTGRES_IMAGE:-infra/postgres:latest}"
 
-  if [[ "${POSTGRES_IMAGE:-}" != postgis/* && "${POSTGRES_IMAGE:-}" != "" ]]; then
+  if [[ "${POSTGRES_IMAGE:-}" == postgis/* || "${POSTGRES_IMAGE:-}" == postgres:* ]]; then
+    build_pg_image="false"
+  fi
+
+  if [[ "$build_pg_image" == "true" ]]; then
     if ! docker image inspect "$pg_image" >/dev/null 2>&1; then
       log "Building postgres image: $pg_image"
       docker build -t "$pg_image" -f Dockerfile.postgres .

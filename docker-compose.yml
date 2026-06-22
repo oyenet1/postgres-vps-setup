@@ -30,7 +30,7 @@ configs:
 
 services:
   postgres:
-    image: ${POSTGRES_IMAGE:-postgis/postgis:17-3.5-alpine}
+    image: ${POSTGRES_IMAGE:-infra/postgres:latest}
     logging: *default-logging
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
