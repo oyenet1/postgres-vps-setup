@@ -15,6 +15,7 @@ pgbouncer/userlist.generated.txt
 redis/haproxy.generated.cfg
 monitoring/alertmanager.generated.yml
 config/rclone/rclone.generated.conf
+monitoring/targets/*.json
 backups/*.sql.gz
 backups/*/
 

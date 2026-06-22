@@ -430,6 +430,7 @@ services:
       - --web.enable-lifecycle
     volumes:
       - prometheus_data:/prometheus
+      - ./monitoring/targets:/etc/prometheus/targets:ro
     ports:
       - target: 9090
         published: ${PROMETHEUS_PORT:-9090}
@@ -459,6 +460,7 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     ports:
       - target: 3000
         published: ${GRAFANA_PORT:-3030}

@@ -252,7 +252,6 @@ prepare_env() {
   set_default_env GRAFANA_PORT 3030
   set_default_env ALERT_FROM alerts@example.com
   set_default_env SMTP_SMARTHOST smtp.gmail.com:587
-  set_default_env LODGESTATUS_METRICS_TOKEN ""
 
   ensure_env_value POSTGRES_PASSWORD
   ensure_env_value PGBOUNCER_AUTH_PASSWORD
@@ -519,38 +518,6 @@ receivers:
         send_resolved: true
 EOF
   ok "Rendered Alertmanager with email receiver"
-}
-
-render_prometheus_config() {
-  local metrics_token
-  metrics_token="$(env_value LODGESTATUS_METRICS_TOKEN || true)"
-
-  if [[ -z "$metrics_token" ]]; then
-    # No lodgestatus token — render the base prometheus.yml as-is
-    # (user can add the lodgestatus job manually if needed).
-    return
-  fi
-
-  # Insert/replace the lodgestatus scrape job at the end of scrape_configs.
-  # The base file ships without the job; we append it only when the token
-  # is configured.
-  if grep -q "job_name: lodgestatus" monitoring/prometheus.yml; then
-    return
-  fi
-
-  cat >> monitoring/prometheus.yml <<EOF
-
-  - job_name: lodgestatus
-    metrics_path: /v1/metrics
-    scheme: http
-    bearer_token: ${metrics_token}
-    static_configs:
-      - targets: ["lodgestatus_lodgestatus_app:3004"]
-        labels:
-          service: lodgestatus
-          env: production
-EOF
-  ok "Rendered Prometheus scrape job for lodgestatus app"
 }
 
 init_swarm() {
@@ -984,7 +951,6 @@ main() {
   render_pgadmin_config
   render_rclone_config
   render_alertmanager_config
-  render_prometheus_config
 
   if [[ "$START_STACK" == "true" ]]; then
     install_docker

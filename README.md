@@ -302,6 +302,111 @@ gunzip -c backups/20260621_235900/myapp.sql.gz | \
 
 To use `postgres`, `pgbouncer`, `redis-proxy` as names from other Swarms, install Tailscale on every VPS. See `docs/TAILSCALE.md`.
 
+## Monitoring your apps (Prometheus + Grafana)
+
+The infra stack ships with Prometheus + Grafana. To add an app's `/v1/metrics` endpoint:
+
+1. **Make sure the app is on the `infra` overlay network.** When you deploy the app's stack, set its `networks:` block to:
+   ```yaml
+   networks:
+     - external: true
+       name: infra_infra
+   ```
+
+2. **Create a target file in `monitoring/targets/<appname>.json`:**
+   ```json
+   [
+     {
+       "targets": ["<stack>_<service>:<port>"],
+       "labels": {
+         "job": "<short-name>",
+         "service": "<app-name>",
+         "env": "production",
+         "metrics_path": "/v1/metrics",
+         "scheme": "http"
+       }
+     }
+   ]
+   ```
+   Example: `monitoring/targets/lodgestatus.json` is included as a starter.
+
+3. **Reload Prometheus** (no service restart needed):
+   ```bash
+   docker exec $(docker ps -q -f name=infra_prometheus) \
+     wget -qO- --post-data='' http://localhost:9090/-/reload
+   ```
+   Or use the `--web.enable-lifecycle` endpoint: `curl -X POST http://YOUR_VPS_IP:9090/-/reload`
+
+4. **Open Grafana** at `http://YOUR_VPS_IP:3030` (login: `admin` / `GRAFANA_PASSWORD` from `infra/.env`).
+
+5. **Pre-built dashboards:**
+   - **Infrastructure Overview** — host CPU/memory/disk, postgres, redis, app status
+   - **App Performance & Errors** — per-app view: request rate, 4xx/5xx counts, latency percentiles, per-endpoint table (visits + 400s + 500s + p70/p90/p95/avg), errors/stack-traces log panel, full log stream. Pick the app from the `$service` dropdown.
+
+### Why this is safe without auth
+
+- The app's metrics endpoint should be on the overlay network only (no `mode: host` port publish for `/v1/metrics`).
+- Only the prometheus container inside the `infra` stack can reach it.
+- If you must expose the metrics endpoint publicly, add `"__bearer_token": "<token>"` to the JSON labels and configure prometheus to use it via `relabel_configs` (see the [Prometheus docs on file_sd](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#file_sd_config)).
+
+### App metrics contract
+
+The auto-provisioned **App Performance & Errors** Grafana dashboard works for any app that exposes the following Prometheus metrics. Adopt this in your app's metrics middleware:
+
+```
+# Counter: one increment per request
+http_requests_total{method, path, status}
+
+# Histogram: observation per request
+http_request_duration_seconds{method, path, status}  (in seconds)
+```
+
+**Required labels:**
+- `method` — HTTP method (`GET`, `POST`, etc.)
+- `path` — normalized route (e.g. `/v1/users/:id`, not `/v1/users/12345`)
+- `status` — HTTP status code as a string (`"200"`, `"404"`, `"500"`)
+
+**Node.js / Express example:**
+```js
+const httpRequestDurationSeconds = new client.Histogram({
+  name: "http_request_duration_seconds",
+  help: "HTTP request duration in seconds",
+  labelNames: ["method", "path", "status"],
+  buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+});
+const httpRequestsTotal = new client.Counter({
+  name: "http_requests_total",
+  help: "Total HTTP requests",
+  labelNames: ["method", "path", "status"],
+});
+
+app.use((req, res, next) => {
+  const start = process.hrtime.bigint();
+  res.on("finish", () => {
+    const duration = Number(process.hrtime.bigint() - start) / 1e9;
+    const labels = { method: req.method, path: req.route?.path || req.path, status: String(res.statusCode) };
+    httpRequestDurationSeconds.observe(labels, duration);
+    httpRequestsTotal.inc(labels);
+  });
+  next();
+});
+```
+
+The dashboard panels are:
+
+| Panel | Source | What it shows |
+|---|---|---|
+| Service Status | `up{job="apps"}` | 1 = up, 0 = down |
+| Request Rate by Status | `rate(http_requests_total)` | Stacked line per status code |
+| 4xx Errors / min | `rate(..., status=~"4..")` | 4xx rate |
+| 5xx Errors / min | `rate(..., status=~"5..")` | 5xx rate |
+| Endpoints (table) | `histogram_quantile(0.70/0.90/0.95)` + counters | Per-endpoint: visits, 400 count, 500 count, p70/p90/p95/avg in ms |
+| Latency Percentiles | `histogram_quantile(0.50/0.90/0.95/0.99)` | p50, p90, p95, p99 over time |
+| Errors / Stack Traces | Loki `{service="$service"} \|~ "(?i)(error|exception|...)"` | Log lines containing errors |
+| All logs | Loki `{service="$service"}` | Full log stream for the selected service |
+
+The `$service` template variable is populated from the `service` label on `http_requests_total{job="apps"}`. It auto-updates as you add apps via `monitoring/targets/*.json`.
+
 ## Clean up Docker
 
 Remove everything except running containers:
