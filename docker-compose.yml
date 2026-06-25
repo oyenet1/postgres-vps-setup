@@ -317,7 +317,7 @@ services:
     image: prometheuscommunity/postgres-exporter:${POSTGRES_EXPORTER_IMAGE_TAG:-v0.17.1}
     logging: *default-logging
     environment:
-      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=require"
     networks:
       - infra
     deploy:

@@ -9,6 +9,9 @@ RUN apt-get update \
         postgresql-17-cron \
     && rm -rf /var/lib/apt/lists/*
 
+COPY --chown=postgres:postgres pgbouncer_ssl/server.crt /etc/postgresql/server.crt
+COPY --chown=postgres:postgres pgbouncer_ssl/server.key /etc/postgresql/server.key
+
 USER postgres
 
 # Requires in postgresql.conf (see postgres_config/postgresql.conf):
