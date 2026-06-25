@@ -11,6 +11,7 @@ RUN apt-get update \
 
 COPY --chown=postgres:postgres pgbouncer_ssl/server.crt /etc/postgresql/server.crt
 COPY --chown=postgres:postgres pgbouncer_ssl/server.key /etc/postgresql/server.key
+RUN chmod 0600 /etc/postgresql/server.key
 
 USER postgres
 
