@@ -657,6 +657,9 @@ start_stack() {
   source .env
   set +a
 
+  log "Enforcing correct permissions on monitoring targets"
+  chmod 644 monitoring/targets/*.json 2>/dev/null || true
+
   log "Deploying stack"
   ${compose_cmd} infra
 }
