@@ -758,31 +758,36 @@
     "list": [
       {
         "current": {
-          "selected": false,
+          "selected": true,
           "text": "All",
           "value": "$__all"
         },
-        "datasource": {
-          "type": "prometheus",
-          "uid": "prometheus"
-        },
-        "definition": "label_values(up{job=\"apps\"}, env)",
         "hide": 0,
         "includeAll": true,
         "label": "Environment",
         "multi": true,
         "name": "env",
-        "options": [],
-        "query": {
-          "qryType": 1,
-          "query": "label_values(up{job=\"apps\"}, env)",
-          "refId": "PrometheusVariableQueryEditor-VariableQuery"
-        },
-        "refresh": 2,
-        "regex": "",
+        "options": [
+          {
+            "selected": true,
+            "text": "All",
+            "value": "$__all"
+          },
+          {
+            "selected": false,
+            "text": "production",
+            "value": "production"
+          },
+          {
+            "selected": false,
+            "text": "staging",
+            "value": "staging"
+          }
+        ],
+        "query": "production, staging",
+        "queryValue": "",
         "skipUrlSync": false,
-        "sort": 1,
-        "type": "query"
+        "type": "custom"
       },
       {
         "current": {
@@ -794,7 +799,7 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(http_requests_total{job=\"apps\", env=~\"$env\"}, service)",
+        "definition": "label_values(service)",
         "hide": 0,
         "includeAll": true,
         "label": "Service",
@@ -802,8 +807,8 @@
         "name": "service",
         "options": [],
         "query": {
-          "qryType": 1,
-          "query": "label_values(http_requests_total{job=\"apps\", env=~\"$env\"}, service)",
+          "qryType": 0,
+          "query": "label_values(service)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -822,7 +827,7 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(http_requests_total{env=~\"$env\", job=\"apps\", service=~\"$service\"}, method)",
+        "definition": "label_values(method)",
         "hide": 0,
         "includeAll": true,
         "label": "Method",
@@ -830,8 +835,8 @@
         "name": "method",
         "options": [],
         "query": {
-          "qryType": 1,
-          "query": "label_values(http_requests_total{env=~\"$env\", job=\"apps\", service=~\"$service\"}, method)",
+          "qryType": 0,
+          "query": "label_values(method)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -850,7 +855,7 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(http_requests_total{env=~\"$env\", job=\"apps\", service=~\"$service\", method=~\"$method\"}, path)",
+        "definition": "label_values(path)",
         "hide": 0,
         "includeAll": true,
         "label": "Endpoint",
@@ -858,8 +863,8 @@
         "name": "path",
         "options": [],
         "query": {
-          "qryType": 1,
-          "query": "label_values(http_requests_total{env=~\"$env\", job=\"apps\", service=~\"$service\", method=~\"$method\"}, path)",
+          "qryType": 0,
+          "query": "label_values(path)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -878,7 +883,7 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(http_requests_total{env=~\"$env\", job=\"apps\", service=~\"$service\"}, status)",
+        "definition": "label_values(status)",
         "hide": 0,
         "includeAll": true,
         "label": "Status",
@@ -886,8 +891,8 @@
         "name": "status",
         "options": [],
         "query": {
-          "qryType": 1,
-          "query": "label_values(http_requests_total{env=~\"$env\", job=\"apps\", service=~\"$service\"}, status)",
+          "qryType": 0,
+          "query": "label_values(status)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
