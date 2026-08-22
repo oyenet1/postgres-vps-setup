@@ -313,6 +313,8 @@ Prometheus scans `monitoring/targets/*.json` **every 30 seconds** (`refresh_inte
 curl -X POST http://YOUR_VPS_IP:9090/-/reload
 ```
 
+> **💡 Copy-Paste AI Prompts:** See [`docs/AI-ONBOARDING-PROMPTS.md`](docs/AI-ONBOARDING-PROMPTS.md) for ready-to-use prompts you can give to any AI assistant to implement this for Node.js, Python, or Go apps automatically.
+
 ### App metrics contract
 
 Your app must expose these two Prometheus metrics:
@@ -608,6 +610,7 @@ infra/
 ├── Dockerfile.postgres             # postgis + pgvector + pg_cron image
 ├── Dockerfile.backup               # postgres + rclone image
 └── docs/
+    ├── AI-ONBOARDING-PROMPTS.md    # copy-paste prompts for AI assistants
     ├── TAILSCALE.md                # cross-Swarm service discovery
     ├── PRD-infrastructure-stack.md # full architecture doc
     └── ONBOARDING-PROJECTS.md      # detailed project onboarding guide
