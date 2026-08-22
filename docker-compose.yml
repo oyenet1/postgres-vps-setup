@@ -17,32 +17,6 @@ secrets:
   pgbouncer_userlist:
     file: ./pgbouncer/userlist.generated.txt
 
-configs:
-  pgbouncer_ini:
-    file: ./pgbouncer/pgbouncer.ini
-  pgbouncer_cert:
-    file: ./pgbouncer/pgbouncer-cert.pem
-  pgbouncer_key:
-    file: ./pgbouncer/pgbouncer-key.pem
-  pg_hba:
-    file: ./postgres_config/pg_hba.conf
-  postgresql_conf:
-    file: ./postgres_config/postgresql.conf
-  pgadmin_servers:
-    file: ./pgadmin/servers.json
-  sentinel_entrypoint:
-    file: ./redis/sentinel-entrypoint.sh
-  haproxy_cfg:
-    file: ./redis/haproxy.generated.cfg
-  backup_script:
-    file: ./templates/backup.sh
-  rclone_conf:
-    file: ./config/rclone/rclone.generated.conf
-  initdb_sql:
-    file: ./initdb/01-bootstrap.sql
-  initdb_auth_sh:
-    file: ./initdb/02-pgbouncer-auth.sh
-
 services:
   postgres:
     image: ${POSTGRES_IMAGE:-infra/postgres:latest}
@@ -66,6 +40,10 @@ services:
       - shared_buffers=${POSTGRES_SHARED_BUFFERS:-256MB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./initdb/01-bootstrap.sql:/docker-entrypoint-initdb.d/01-bootstrap.sql:ro
+      - ./initdb/02-pgbouncer-auth.sh:/docker-entrypoint-initdb.d/02-pgbouncer-auth.sh:ro
+      - ./postgres_config/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./postgres_config/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
     networks:
       infra:
         aliases:
@@ -76,19 +54,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
-    configs:
-      - source: initdb_sql
-        target: /docker-entrypoint-initdb.d/01-bootstrap.sql
-        mode: 0444
-      - source: pg_hba
-        target: /etc/postgresql/pg_hba.conf
-        mode: 0444
-      - source: initdb_auth_sh
-        target: /docker-entrypoint-initdb.d/02-pgbouncer-auth.sh
-        mode: 0444
-      - source: postgresql_conf
-        target: /etc/postgresql/postgresql.conf
-        mode: 0644
     deploy:
       mode: replicated
       replicas: 1
@@ -102,6 +67,10 @@ services:
   pgbouncer:
     image: edoburu/pgbouncer:${PGBOUNCER_IMAGE_TAG:-v1.25.1-p0}
     logging: *default-logging
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/pgbouncer-cert.pem:/etc/pgbouncer/server-cert.pem:ro
+      - ./pgbouncer/pgbouncer-key.pem:/etc/pgbouncer/server-key.pem:ro
     ports:
       - target: 6432
         published: ${PGBOUNCER_PORT:-6543}
@@ -117,16 +86,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
-    configs:
-      - source: pgbouncer_ini
-        target: /etc/pgbouncer/pgbouncer.ini
-        mode: 0444
-      - source: pgbouncer_cert
-        target: /etc/pgbouncer/server-cert.pem
-        mode: 0444
-      - source: pgbouncer_key
-        target: /etc/pgbouncer/server-key.pem
-        mode: 0444
     secrets:
       - source: pgbouncer_userlist
         target: /etc/pgbouncer/userlist.txt
@@ -146,6 +105,7 @@ services:
       PGADMIN_CONFIG_SERVER_MODE: "True"
     volumes:
       - pgadmin_data:/var/lib/pgadmin
+      - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
     ports:
       - target: 80
         published: ${PGADMIN_PORT:-5050}
@@ -155,10 +115,6 @@ services:
       infra:
         aliases:
           - pgadmin
-    configs:
-      - source: pgadmin_servers
-        target: /pgadmin4/servers.json
-        mode: 0444
     deploy:
       mode: replicated
       replicas: 1
@@ -239,14 +195,12 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_SENTINEL_MASTER_NAME: ${REDIS_SENTINEL_MASTER_NAME:-dbmaster}
     command: ["/bin/sh", "/redis/sentinel-entrypoint.sh"]
+    volumes:
+      - ./redis/sentinel-entrypoint.sh:/redis/sentinel-entrypoint.sh:ro
     networks:
       infra:
         aliases:
           - redis-sentinel
-    configs:
-      - source: sentinel_entrypoint
-        target: /redis/sentinel-entrypoint.sh
-        mode: 0555
     deploy:
       mode: replicated
       replicas: 3
@@ -256,6 +210,8 @@ services:
   redis-proxy:
     image: haproxy:${HAPROXY_IMAGE_TAG:-2.9-alpine}
     logging: *default-logging
+    volumes:
+      - ./redis/haproxy.generated.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     ports:
       - target: 6379
         published: ${REDIS_PORT:-6379}
@@ -271,10 +227,6 @@ services:
       timeout: 3s
       retries: 10
       start_period: 15s
-    configs:
-      - source: haproxy_cfg
-        target: /usr/local/etc/haproxy/haproxy.cfg
-        mode: 0444
     deploy:
       mode: replicated
       replicas: 1
@@ -297,16 +249,11 @@ services:
       RCLONE_CONFIG: /config/rclone/rclone.conf
     volumes:
       - backup_data:/backups
+      - ./templates/backup.sh:/scripts/backup.sh:ro
+      - ./config/rclone/rclone.generated.conf:/config/rclone/rclone.conf:ro
     command: ["/bin/sh", "-c", "while true; do /bin/sh /scripts/backup.sh; sleep ${BACKUP_INTERVAL_SECONDS:-43200}; done"]
     networks:
       - infra
-    configs:
-      - source: backup_script
-        target: /scripts/backup.sh
-        mode: 0555
-      - source: rclone_conf
-        target: /config/rclone/rclone.conf
-        mode: 0400
     deploy:
       mode: replicated
       replicas: 1
