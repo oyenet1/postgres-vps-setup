@@ -42,20 +42,6 @@ configs:
     file: ./initdb/01-bootstrap.sql
   initdb_auth_sh:
     file: ./initdb/02-pgbouncer-auth.sh
-  loki_yaml:
-    file: ./monitoring/loki.yml
-  alloy_config:
-    file: ./monitoring/alloy/config.alloy
-  prometheus_yaml:
-    file: ./monitoring/prometheus.yml
-  alert_rules:
-    file: ./monitoring/alert.rules.yml
-  alertmanager_yaml:
-    file: ./monitoring/alertmanager.generated.yml
-  grafana_dashboards:
-    file: ./grafana/provisioning/dashboards/dashboards.yml
-  grafana_datasources:
-    file: ./grafana/provisioning/datasources/datasources.yml
 
 services:
   postgres:
@@ -380,6 +366,7 @@ services:
     command: -config.file=/etc/loki/loki.yml
     volumes:
       - loki_data:/loki
+      - ./monitoring/loki.yml:/etc/loki/loki.yml:ro
     ports:
       - target: 3100
         published: ${LOKI_PORT:-3100}
@@ -389,10 +376,6 @@ services:
       infra:
         aliases:
           - loki
-    configs:
-      - source: loki_yaml
-        target: /etc/loki/loki.yml
-        mode: 0444
     deploy:
       mode: replicated
       replicas: 1
@@ -405,14 +388,11 @@ services:
     command: run /etc/alloy/config.alloy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./monitoring/alloy/config.alloy:/etc/alloy/config.alloy:ro
     networks:
       infra:
         aliases:
           - alloy
-    configs:
-      - source: alloy_config
-        target: /etc/alloy/config.alloy
-        mode: 0444
     deploy:
       mode: replicated
       replicas: 1
@@ -427,6 +407,7 @@ services:
     logging: *default-logging
     volumes:
       - alertmanager_data:/alertmanager
+      - ./monitoring/alertmanager.generated.yml:/etc/alertmanager/alertmanager.yml:ro
     ports:
       - target: 9093
         published: ${ALERTMANAGER_PORT:-9093}
@@ -436,10 +417,6 @@ services:
       infra:
         aliases:
           - alertmanager
-    configs:
-      - source: alertmanager_yaml
-        target: /etc/alertmanager/alertmanager.yml
-        mode: 0444
     deploy:
       mode: replicated
       replicas: 1
@@ -458,6 +435,8 @@ services:
       - prometheus_data:/prometheus
       - ./monitoring/targets:/etc/prometheus/targets:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alert.rules.yml:/etc/prometheus/alert.rules.yml:ro
     ports:
       - target: 9090
         published: ${PROMETHEUS_PORT:-9090}
@@ -467,13 +446,6 @@ services:
       infra:
         aliases:
           - prometheus
-    configs:
-      - source: prometheus_yaml
-        target: /etc/prometheus/prometheus.yml
-        mode: 0444
-      - source: alert_rules
-        target: /etc/prometheus/alert.rules.yml
-        mode: 0444
     deploy:
       mode: replicated
       replicas: 1
@@ -493,6 +465,8 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./grafana/provisioning/dashboards/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./grafana/provisioning/datasources/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
     ports:
       - target: 3000
         published: ${GRAFANA_PORT:-3030}
@@ -502,13 +476,6 @@ services:
       infra:
         aliases:
           - grafana
-    configs:
-      - source: grafana_dashboards
-        target: /etc/grafana/provisioning/dashboards/dashboards.yml
-        mode: 0444
-      - source: grafana_datasources
-        target: /etc/grafana/provisioning/datasources/datasources.yml
-        mode: 0444
     deploy:
       mode: replicated
       replicas: 1
