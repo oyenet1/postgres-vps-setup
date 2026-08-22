@@ -13,10 +13,6 @@ x-logging: &default-logging
     max-size: "10m"
     max-file: "3"
 
-secrets:
-  pgbouncer_userlist:
-    file: ./pgbouncer/userlist.generated.txt
-
 services:
   postgres:
     image: ${POSTGRES_IMAGE:-infra/postgres:latest}
@@ -71,6 +67,7 @@ services:
       - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
       - ./pgbouncer/pgbouncer-cert.pem:/etc/pgbouncer/server-cert.pem:ro
       - ./pgbouncer/pgbouncer-key.pem:/etc/pgbouncer/server-key.pem:ro
+      - ./pgbouncer/userlist.generated.txt:/etc/pgbouncer/userlist.txt:ro
     ports:
       - target: 6432
         published: ${PGBOUNCER_PORT:-6543}
@@ -86,10 +83,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
-    secrets:
-      - source: pgbouncer_userlist
-        target: /etc/pgbouncer/userlist.txt
-        mode: 0444
     deploy:
       mode: replicated
       replicas: 1

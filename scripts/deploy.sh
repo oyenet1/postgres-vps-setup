@@ -59,6 +59,11 @@ fi
 echo "[deploy] Rendering generated config from .env"
 ./setup.sh --no-start
 
+echo "[deploy] Normalizing permissions on configs and certificates"
+chmod 755 pgbouncer postgres_config initdb redis monitoring grafana templates 2>/dev/null || true
+chmod 644 pgbouncer/* postgres_config/* initdb/* redis/* templates/* monitoring/* 2>/dev/null || true
+chmod 755 redis/sentinel-entrypoint.sh templates/backup.sh initdb/02-pgbouncer-auth.sh 2>/dev/null || true
+
 echo "[deploy] Deploying stack: $STACK_NAME"
 docker stack deploy "${COMPOSE_FILES[@]}" "$STACK_NAME"
 
