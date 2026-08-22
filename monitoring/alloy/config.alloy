@@ -63,6 +63,13 @@ discovery.relabel "add_labels" {
 loki.source.docker "containers" {
   host       = "unix:///var/run/docker.sock"
   targets    = discovery.relabel.add_labels.output
+  forward_to = [loki.process.filter_logs.receiver]
+}
+
+loki.process "filter_logs" {
+  stage.drop {
+    older_than = "168h"
+  }
   forward_to = [loki.write.local.receiver]
 }
 
