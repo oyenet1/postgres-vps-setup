@@ -774,6 +774,7 @@
         "name": "env",
         "options": [],
         "query": {
+          "qryType": 1,
           "query": "label_values(up{job=\"apps\"}, env)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
@@ -801,6 +802,7 @@
         "name": "service",
         "options": [],
         "query": {
+          "qryType": 1,
           "query": "label_values(http_requests_total{job=\"apps\", env=~\"$env\"}, service)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
@@ -828,6 +830,7 @@
         "name": "method",
         "options": [],
         "query": {
+          "qryType": 1,
           "query": "label_values(http_requests_total{env=~\"$env\", job=\"apps\", service=~\"$service\"}, method)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
@@ -855,6 +858,7 @@
         "name": "path",
         "options": [],
         "query": {
+          "qryType": 1,
           "query": "label_values(http_requests_total{env=~\"$env\", job=\"apps\", service=~\"$service\", method=~\"$method\"}, path)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
@@ -882,6 +886,7 @@
         "name": "status",
         "options": [],
         "query": {
+          "qryType": 1,
           "query": "label_values(http_requests_total{env=~\"$env\", job=\"apps\", service=~\"$service\"}, status)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },

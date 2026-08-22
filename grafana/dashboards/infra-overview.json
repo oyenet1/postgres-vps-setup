@@ -625,6 +625,7 @@
         "name": "env",
         "options": [],
         "query": {
+          "qryType": 1,
           "query": "label_values(up{job=\"apps\"}, env)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
