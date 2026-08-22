@@ -41,12 +41,12 @@ scrape_configs:
     relabel_configs:
       # Only keep tasks connected to the 'infra' network
       - source_labels: [__meta_dockerswarm_network_name]
-        regex: "infra"
+        regex: ".*infra.*"
         action: keep
 
       # Ignore internal infra stack services
       - source_labels: [__meta_dockerswarm_service_label_com_docker_stack_namespace]
-        regex: "^infra$"
+        regex: "^infra.*$"
         action: drop
 
       # Metrics path: default to /v1/metrics (override with label prometheus.path or prometheus_path)

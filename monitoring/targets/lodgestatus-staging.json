@@ -1,0 +1,12 @@
+[
+  {
+    "targets": ["lodgestatus-staging_app:3005"],
+    "labels": {
+      "job": "apps",
+      "service": "lodgestatus-staging",
+      "env": "staging",
+      "metrics_path": "/v1/metrics",
+      "scheme": "http"
+    }
+  }
+]
