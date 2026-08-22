@@ -71,4 +71,12 @@ if [[ "$STACK_NAME" == "infra" || "$STACK_NAME" == "infrastructure" ]]; then
   ./scripts/configure-pgbouncer-auth.sh
 fi
 
+echo "[deploy] Waiting 30s for Swarm services to converge..."
+sleep 30
+
+echo "[deploy] Cleaning up stopped containers and dangling images..."
+docker rm -f $(docker ps -a -q -f status=exited -f status=dead) 2>/dev/null || true
+docker container prune -f >/dev/null 2>&1 || true
+docker image prune -f >/dev/null 2>&1 || true
+
 echo "[deploy] Done"
