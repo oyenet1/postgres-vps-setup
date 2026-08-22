@@ -299,8 +299,8 @@ render_pgbouncer_config() {
       -out pgbouncer/pgbouncer-cert.pem \
       -subj "/CN=pgbouncer/O=Infra" \
       -addext "subjectAltName=DNS:pgbouncer,DNS:localhost,IP:127.0.0.1"
-    chmod 600 pgbouncer/pgbouncer-key.pem
   fi
+  chmod 644 pgbouncer/pgbouncer-key.pem pgbouncer/pgbouncer-cert.pem 2>/dev/null || true
 
   cat > pgbouncer/pgbouncer.ini <<EOF
 [databases]
@@ -341,7 +341,7 @@ EOF
 "${auth_user}" "${auth_password}"
 EOF
 
-  chmod 600 pgbouncer/userlist.generated.txt
+  chmod 644 pgbouncer/pgbouncer.ini pgbouncer/userlist.generated.txt 2>/dev/null || true
   ok "Rendered PgBouncer config with wildcard database routing${tls_enabled:+ and TLS}"
 }
 
