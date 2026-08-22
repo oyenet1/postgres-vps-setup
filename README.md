@@ -36,8 +36,8 @@ Single-node Docker Swarm. Always-included monitoring (no opt-in flag). Custom-bu
 
 ## Live contract
 
-- Shared stack name: `infrastructure`
-- Shared overlay network: `infrastructure`
+- Shared stack name: `infra`
+- Shared overlay network: `infra`
 - Cross-stack DNS aliases: `postgres`, `pgbouncer`, `redis-proxy`, `redis-master`
 - Boot persistence: Docker and containerd are enabled, and Swarm services restart automatically when Docker starts on boot
 - Published host ports come from `.env`; the examples below use the `.env.example` defaults unless noted otherwise
@@ -96,7 +96,7 @@ PgBouncer on the host port defined by `PGBOUNCER_PORT` is the recommended endpoi
 |---|---|
 | Same VPS (not Docker) | `postgres://postgres:PASS@127.0.0.1:6543/mydb` |
 | Same VPS (Docker, not in Swarm) | `postgres://postgres:PASS@HOST_IP:6543/mydb` |
-| Same Docker Swarm (`infrastructure` overlay) | `postgres://postgres:PASS@pgbouncer:6432/mydb` |
+| Same Docker Swarm (`infra` overlay) | `postgres://postgres:PASS@pgbouncer:6432/mydb` |
 | External / internet | `postgres://postgres:PASS@YOUR_VPS_IP:6543/mydb` |
 
 **Multiple apps / databases / roles:**
@@ -192,20 +192,19 @@ services:
       DATABASE_URL: postgres://postgres:PASS@pgbouncer:6432/mydb
       REDIS_URL: redis://:PASS@redis-proxy:6379/0
     networks:
-      - infrastructure
+      - infra
 networks:
-  infrastructure:
+  infra:
     external: true
-    name: infrastructure
 ```
 
-Note: your app container must be on the `infrastructure` overlay network to use service names (`pgbouncer`, `redis-proxy`).
+Note: your app container must be on the `infra` overlay network to use service names (`pgbouncer`, `redis-proxy`).
 
 ## Create a database
 
 The fastest way — via psql on the VPS:
 ```bash
-docker run --rm --network infrastructure postgres:17-alpine \
+docker run --rm --network infra postgres:17-alpine \
   psql -h postgres -U postgres -c "CREATE DATABASE myapp;"
 ```
 
@@ -256,25 +255,35 @@ SMTP_USER=your-sender@gmail.com
 SMTP_PASSWORD=your-app-password
 ```
 
-## Adding your app to monitoring (3 steps)
+## Adding any app to monitoring (Zero-Touch Guide)
 
-The infra stack can monitor any app that exposes Prometheus metrics. The **App Performance & Errors** dashboard is templated — pick the app from the `$service` dropdown, all panels update.
+The infra stack is designed so **you never need to modify infra configurations or redeploy the infra stack** when onboarding a new app or service. 
 
-### 1. Make the app reachable from the `infra` stack
+Grafana dashboards (`App Performance & Errors`, `Infrastructure Overview`) are dynamic: they automatically populate the **Environment** (`staging`, `production`) and **Service** (`<app-name>`) dropdowns based on active Prometheus scrapes and Loki log streams.
 
-In the app's `docker-swarm.yml`, join the `infra` overlay network:
+### 1. Join the `infra` overlay network
+
+In your app's `docker-swarm.yml`, attach the service to the external `infra` network:
 ```yaml
+services:
+  app:
+    image: my-registry/my-app:latest
+    networks:
+      - infra
+
 networks:
-  - external: true
-    name: infra_infra
+  infra:
+    external: true
 ```
 
-### 2. Drop a target file in `monitoring/targets/<appname>.json`
+### 2. Drop a target file in `monitoring/targets/<app-name>.json`
+
+Create a JSON file in `monitoring/targets/` (e.g. `monitoring/targets/my-app.json` or `monitoring/targets/my-app-staging.json`):
 
 ```json
 [
   {
-    "targets": ["<stack>_<service>:<port>"],
+    "targets": ["<stack-name>_<service-name>:<port>"],
     "labels": {
       "job": "apps",
       "service": "<app-name>",
@@ -286,15 +295,23 @@ networks:
 ]
 ```
 
-A starter is at `monitoring/targets/lodgestatus.json` (gitignored, edit or delete freely).
+**Target Label Rules:**
+- `service`: The app identity (e.g. `"lodgestatus"`, `"billing-api"`). Used in Grafana `$service` dropdown.
+- `env`: Environment (e.g. `"production"` or `"staging"`). Used in Grafana `$env` dropdown.
+- `metrics_path`: Path serving Prometheus text metrics (e.g. `"/v1/metrics"` or `"/metrics"`).
+- `targets`: Swarm internal DNS name `<stack-namespace>_<service-name>:<port>` (e.g. `["lodgestatus_app:3004"]`, `["lodgestatus-staging_app:3005"]`).
 
-### 3. Reload Prometheus (no service restart)
+### 3. Automatic Discovery (No restarts required)
 
+Prometheus scans `monitoring/targets/*.json` **every 30 seconds** (`refresh_interval: 30s`).
+- **Zero restart / redeploy needed**: Within 30 seconds of saving the file, Prometheus begins scraping.
+- **Instant Grafana update**: The new app and environment appear immediately in Grafana's dropdown filters.
+- **Instant log collection**: Alloy automatically streams all container stdout logs to Loki, tagging them with the stack namespace and environment (`staging` or `production`).
+
+*(Optional manual reload if you want it scraped instantly without waiting 30s)*:
 ```bash
 curl -X POST http://YOUR_VPS_IP:9090/-/reload
 ```
-
-The app is now monitored. Open Grafana → **App Performance & Errors** → pick it from the `$service` dropdown.
 
 ### App metrics contract
 
@@ -490,13 +507,13 @@ docker exec $(docker ps --filter name=infra_backup --format='{{.Names}}' | head 
 **Restore:**
 ```bash
 gunzip -c backups/20260621_235900/myapp.sql.gz | \
-  docker run --rm -i --network infrastructure postgres:17-alpine \
+  docker run --rm -i --network infra postgres:17-alpine \
   psql -h postgres -U postgres -d myapp
 ```
 
 ## Service names on the overlay network
 
-When your app is on the same Swarm cluster as this stack, it should use the shared network aliases directly. The `infrastructure` overlay exports the short names below:
+When your app is on the same Swarm cluster as this stack, it should use the shared network aliases directly. The `infra` overlay exports the short names below:
 
 | DNS name | What it is | Reachable from your app? |
 |---|---|---|
@@ -516,7 +533,7 @@ When your app is on the same Swarm cluster as this stack, it should use the shar
 
 ```bash
 # Run a one-off shell on the overlay network
-docker run --rm --network infrastructure alpine nslookup pgbouncer
+docker run --rm --network infra alpine nslookup pgbouncer
 
 # Or from inside your app's stack
 docker exec $(docker ps -q -f name=lodgestatus_lodgestatus_app) \
@@ -546,10 +563,10 @@ To use `postgres`, `pgbouncer`, `redis-proxy` as names from other Swarms (so you
 ## Common operations
 
 ```bash
-docker stack ps infrastructure                 # show all services and their state
-docker service logs infrastructure_pgbouncer -f
-docker service update --force infrastructure_pgbouncer
-docker stack rm infrastructure
+docker stack ps infra                 # show all services and their state
+docker service logs infra_pgbouncer -f
+docker service update --force infra_pgbouncer
+docker stack rm infra
 sudo ./setup.sh -s 22                       # re-render + redeploy
 ```
 
@@ -607,19 +624,18 @@ infra/
 
 **"getent hosts pgbouncer" returns nothing from my app's container:**
 
-Your app is not on the `infrastructure` overlay network. In your app's `docker-swarm.yml`, add the network to the service:
+Your app is not on the `infra` overlay network. In your app's `docker-swarm.yml`, add the network to the service:
 
 ```yaml
 services:
   app:
     networks:
       - default        # or whichever network your app currently uses
-      - infrastructure # add this
+      - infra          # add this
 
 networks:
-  infrastructure:
+  infra:
     external: true
-    name: infrastructure
 ```
 
 Then redeploy the app: `docker stack deploy -c docker-swarm.yml myapp`. See [Service names on the overlay network](#service-names-on-the-overlay-network) above.
@@ -631,7 +647,7 @@ The role is auto-created by `initdb/02-pgbouncer-auth.sh` on fresh volume init. 
 ```bash
 cd /opt/infra
 set -a; source .env; set +a
-docker exec -i $(docker ps -q -f name=infrastructure_postgres) \
+docker exec -i $(docker ps -q -f name=infra_postgres) \
   psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<SQL
 DO \$\$
 BEGIN
@@ -645,7 +661,7 @@ END
 GRANT USAGE ON SCHEMA pgbouncer TO ${PGBOUNCER_AUTH_USER:-pgbouncer_auth};
 GRANT EXECUTE ON FUNCTION pgbouncer.get_auth(TEXT) TO ${PGBOUNCER_AUTH_USER:-pgbouncer_auth};
 SQL
-docker service update --force infrastructure_pgbouncer
+docker service update --force infra_pgbouncer
 ```
 
 **PgBouncer "cached error: password authentication failed":**

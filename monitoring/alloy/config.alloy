@@ -36,18 +36,25 @@ discovery.relabel "add_labels" {
     target_label  = "swarm_service"
   }
 
-  # Derive env label from the Swarm stack namespace so Loki streams can be
-  # filtered by environment in Grafana (matches the Prometheus env label).
+  # 1. Direct label from Docker / Swarm if provided: app.env
   rule {
-    source_labels = ["__meta_docker_container_label_com_docker_stack_namespace"]
-    regex         = "^lodgestatus-staging$"
+    source_labels = ["__meta_docker_container_label_app_env"]
+    regex         = "(.+)"
+    target_label  = "env"
+  }
+
+  # 2. Heuristic from Swarm stack namespace if env is staging
+  rule {
+    source_labels = ["env", "__meta_docker_container_label_com_docker_stack_namespace"]
+    regex         = ";.*staging.*"
     target_label  = "env"
     replacement   = "staging"
   }
 
+  # 3. Default any other Swarm stack to production
   rule {
-    source_labels = ["__meta_docker_container_label_com_docker_stack_namespace"]
-    regex         = "^lodgestatus$"
+    source_labels = ["env", "__meta_docker_container_label_com_docker_stack_namespace"]
+    regex         = ";(.+)"
     target_label  = "env"
     replacement   = "production"
   }
