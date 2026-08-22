@@ -36,14 +36,14 @@ discovery.relabel "add_labels" {
     target_label  = "swarm_service"
   }
 
-  # 1. Direct label from Docker / Swarm if provided: app.env
+  // 1. Direct label from Docker / Swarm if provided: app.env
   rule {
     source_labels = ["__meta_docker_container_label_app_env"]
     regex         = "(.+)"
     target_label  = "env"
   }
 
-  # 2. Heuristic from Swarm stack namespace if env is staging
+  // 2. Heuristic from Swarm stack namespace if env is staging
   rule {
     source_labels = ["env", "__meta_docker_container_label_com_docker_stack_namespace"]
     regex         = ";.*staging.*"
@@ -51,7 +51,7 @@ discovery.relabel "add_labels" {
     replacement   = "staging"
   }
 
-  # 3. Default any other Swarm stack to production
+  // 3. Default any other Swarm stack to production
   rule {
     source_labels = ["env", "__meta_docker_container_label_com_docker_stack_namespace"]
     regex         = ";(.+)"
