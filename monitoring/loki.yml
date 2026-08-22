@@ -24,5 +24,9 @@ schema_config:
         prefix: index_
         period: 24h
 
+limits_config:
+  reject_old_samples: false
+  creation_grace_period: 10m
+
 ruler:
   alertmanager_url: http://alertmanager:9093
