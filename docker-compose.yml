@@ -457,6 +457,7 @@ services:
     volumes:
       - prometheus_data:/prometheus
       - ./monitoring/targets:/etc/prometheus/targets:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
       - target: 9090
         published: ${PROMETHEUS_PORT:-9090}
@@ -478,6 +479,9 @@ services:
       replicas: 1
       restart_policy:
         condition: any
+      placement:
+        constraints:
+          - node.role == manager
 
   grafana:
     image: grafana/grafana:${GRAFANA_IMAGE_TAG:-11.2.0}
