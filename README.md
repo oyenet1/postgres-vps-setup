@@ -1,3 +1,13 @@
+<!--
+──────────────────────────────────────────────────────────────────
+🏢 Company Name: Bonifade Technologies
+👨‍💻 Developer: Bowofade Oyerinde
+🐙 GitHub: oyenet1
+📅 Created Date: 2026-07-16
+🔄 Updated Date: 2026-07-16
+──────────────────────────────────────────────────────────────────
+-->
+
 # Infra — single-VPS Docker Swarm stack
 
 Production-ready PostgreSQL, Redis, monitoring, and backups for a single VPS. One command to install, one command to redeploy, one dashboard for every app.
@@ -12,7 +22,7 @@ Replace `22` with your real SSH port.
 
 | Service | Default port | Purpose |
 |---|---|---|
-| **PostgreSQL 17** (PostGIS + pgvector + pg_cron) | `5432` (host-only), `5544` (external) | Database |
+| **PostgreSQL 17** (PostGIS + pgvector + pg_cron) | `5544` | Direct admin/migration access |
 | **PgBouncer** | `6543` (TLS optional) | Connection pool — apps connect here |
 | **pgAdmin** | `5050` (host-only) | Browser DB admin UI |
 | **Redis** (master + replica + 3-node Sentinel + HAProxy) | `6379` | Cache, queues, sessions |
@@ -23,6 +33,14 @@ Replace `22` with your real SSH port.
 | **Alertmanager** | `9093` (host-only) | Email alerts |
 
 Single-node Docker Swarm. Always-included monitoring (no opt-in flag). Custom-built Postgres image with all the extensions baked in.
+
+## Live contract
+
+- Shared stack name: `infrastructure`
+- Shared overlay network: `infrastructure`
+- Cross-stack DNS aliases: `postgres`, `pgbouncer`, `redis-proxy`, `redis-master`
+- Boot persistence: Docker and containerd are enabled, and Swarm services restart automatically when Docker starts on boot
+- Published host ports come from `.env`; the examples below use the `.env.example` defaults unless noted otherwise
 
 ## Quick start
 
@@ -72,13 +90,13 @@ sudo ./setup.sh --no-start
 
 ### PostgreSQL via PgBouncer (use this for apps)
 
-PgBouncer on `6543` is the recommended endpoint. Pooled, fast, and supports **any database and any login role** you create in pgAdmin — no PgBouncer config edit needed.
+PgBouncer on the host port defined by `PGBOUNCER_PORT` is the recommended endpoint. Pooled, fast, and supports **any database and any login role** you create in pgAdmin — no PgBouncer config edit needed. The examples below use the default `6543`.
 
 | Where your app runs | URL |
 |---|---|
 | Same VPS (not Docker) | `postgres://postgres:PASS@127.0.0.1:6543/mydb` |
 | Same VPS (Docker, not in Swarm) | `postgres://postgres:PASS@HOST_IP:6543/mydb` |
-| Same Docker Swarm (`infra` overlay) | `postgres://postgres:PASS@pgbouncer:6432/mydb` |
+| Same Docker Swarm (`infrastructure` overlay) | `postgres://postgres:PASS@pgbouncer:6432/mydb` |
 | External / internet | `postgres://postgres:PASS@YOUR_VPS_IP:6543/mydb` |
 
 **Multiple apps / databases / roles:**
@@ -97,7 +115,7 @@ Skips PgBouncer. Use for migrations, pgAdmin, or admin tasks.
 
 | Where | URL |
 |---|---|
-| Same VPS | `postgres://postgres:PASS@127.0.0.1:5432/mydb` |
+| Same VPS | `postgres://postgres:PASS@127.0.0.1:5544/mydb` |
 | Same Docker Swarm | `postgres://postgres:PASS@postgres:5432/mydb` |
 | External | `postgres://postgres:PASS@YOUR_VPS_IP:5544/mydb` |
 
@@ -174,23 +192,24 @@ services:
       DATABASE_URL: postgres://postgres:PASS@pgbouncer:6432/mydb
       REDIS_URL: redis://:PASS@redis-proxy:6379/0
     networks:
-      - infra
+      - infrastructure
 networks:
-  infra:
+  infrastructure:
     external: true
+    name: infrastructure
 ```
 
-Note: your app container must be on the `infra` overlay network to use service names (`pgbouncer`, `redis-proxy`).
+Note: your app container must be on the `infrastructure` overlay network to use service names (`pgbouncer`, `redis-proxy`).
 
 ## Create a database
 
 The fastest way — via psql on the VPS:
 ```bash
-docker run --rm --network infra postgres:17-alpine \
+docker run --rm --network infrastructure postgres:17-alpine \
   psql -h postgres -U postgres -c "CREATE DATABASE myapp;"
 ```
 
-Or via pgAdmin (browser UI at `http://YOUR_VPS_IP:5050` — connect with the host-only port `5432`).
+Or via pgAdmin (browser UI at the host port from `.env`, default `5050`).
 
 Then connect:
 ```
@@ -471,41 +490,37 @@ docker exec $(docker ps --filter name=infra_backup --format='{{.Names}}' | head 
 **Restore:**
 ```bash
 gunzip -c backups/20260621_235900/myapp.sql.gz | \
-  docker run --rm -i --network infra postgres:17-alpine \
+  docker run --rm -i --network infrastructure postgres:17-alpine \
   psql -h postgres -U postgres -d myapp
 ```
 
 ## Service names on the overlay network
 
-When your app is on the same Swarm cluster as this stack, it can reach every service by its **Swarm DNS name**: `<stack-name>_<service-name>`. The `infra` stack's services are named with the `infra_` prefix:
+When your app is on the same Swarm cluster as this stack, it should use the shared network aliases directly. The `infrastructure` overlay exports the short names below:
 
 | DNS name | What it is | Reachable from your app? |
 |---|---|---|
-| `infra_pgbouncer` | PgBouncer (port 6432) | ✅ Yes — use this for DB |
-| `infra_postgres` | PostgreSQL (port 5432) | ✅ Yes — admin only |
-| `infra_redis-proxy` | HAProxy → Redis master (port 6379) | ✅ Yes — use this for cache |
-| `infra_redis-master` | Redis master (port 6379) | ⚠️ Bypasses HAProxy, use `infra_redis-proxy` instead |
-| `infra_redis-replica` | Redis replica (port 6379) | ⚠️ Read-only |
-| `infra_redis-sentinel` | Redis Sentinel (port 26379) | ❌ Internal only |
-| `infra_pgadmin` | pgAdmin (port 80) | ⚠️ For browser access only |
-| `infra_prometheus` | Prometheus (port 9090) | ✅ For metrics scraping |
-| `infra_grafana` | Grafana (port 3000) | ❌ Use the host-published port 3030 |
-| `infra_loki` | Loki (port 3100) | ✅ For log shipping |
-| `infra_alloy` | Alloy (port 12345) | ❌ Internal only |
-
-**Why the `infra_` prefix?**
-
-Docker Swarm namespaces service names by the stack they belong to. The `infra_` prefix is the stack name you passed to `docker stack deploy -c docker-compose.yml infra`. If you had two stacks with a `pgbouncer` service, just `pgbouncer` would be ambiguous.
+| `pgbouncer` | PgBouncer (port 6432) | ✅ Yes — use this for DB |
+| `postgres` | PostgreSQL (port 5432) | ✅ Yes — admin only |
+| `redis-proxy` | HAProxy → Redis master (port 6379) | ✅ Yes — use this for cache |
+| `redis-master` | Redis master (port 6379) | ⚠️ Bypasses HAProxy, use `redis-proxy` instead |
+| `redis-replica` | Redis replica (port 6379) | ⚠️ Read-only |
+| `redis-sentinel` | Redis Sentinel (port 26379) | ❌ Internal only |
+| `pgadmin` | pgAdmin (port 80) | ⚠️ For browser access only |
+| `prometheus` | Prometheus (port 9090) | ✅ For metrics scraping |
+| `grafana` | Grafana (port 3000) | ❌ Use the host-published Grafana port |
+| `loki` | Loki (port 3100) | ✅ For log shipping |
+| `alloy` | Alloy | ❌ Internal only |
 
 **Verify DNS works from your app's container:**
 
 ```bash
 # Run a one-off shell on the overlay network
-docker run --rm --network infra_infra alpine nslookup infra_pgbouncer
+docker run --rm --network infrastructure alpine nslookup pgbouncer
 
 # Or from inside your app's stack
 docker exec $(docker ps -q -f name=lodgestatus_lodgestatus_app) \
-  getent hosts infra_pgbouncer
+  getent hosts pgbouncer
 ```
 
 You should see the container's IP, not an error.
@@ -513,8 +528,8 @@ You should see the container's IP, not an error.
 **Connection URL examples (inside the same Swarm):**
 
 ```env
-DATABASE_URL=postgresql://postgres:PASS@infra_pgbouncer:6543/mydb
-REDIS_URL=redis://:PASS@infra_redis-proxy:6379/0
+DATABASE_URL=postgresql://postgres:PASS@pgbouncer:6432/mydb
+REDIS_URL=redis://:PASS@redis-proxy:6379/0
 ```
 
 **Connection URL examples (from outside the Swarm):**
@@ -524,8 +539,6 @@ DATABASE_URL=postgresql://postgres:PASS@YOUR_VPS_IP:6543/mydb
 REDIS_URL=redis://:PASS@YOUR_VPS_IP:6379/0
 ```
 
-**Want a shorter alias?** You can add a network alias to make `pgbouncer` (without the `infra_` prefix) resolve, but it's not necessary — once you know the pattern, `infra_pgbouncer` is just as easy to type and avoids ambiguity with future stacks.
-
 ## Cross-Swarm service names
 
 To use `postgres`, `pgbouncer`, `redis-proxy` as names from other Swarms (so your apps on a different VPS can connect), install Tailscale on every VPS. See `docs/TAILSCALE.md`.
@@ -533,10 +546,10 @@ To use `postgres`, `pgbouncer`, `redis-proxy` as names from other Swarms (so you
 ## Common operations
 
 ```bash
-docker stack ps infra                       # show all services and their state
-docker service logs infra_pgbouncer -f      # tail pgbouncer logs
-docker service update --force infra_pgbouncer  # restart pgbouncer
-docker stack rm infra                       # tear it all down
+docker stack ps infrastructure                 # show all services and their state
+docker service logs infrastructure_pgbouncer -f
+docker service update --force infrastructure_pgbouncer
+docker stack rm infrastructure
 sudo ./setup.sh -s 22                       # re-render + redeploy
 ```
 
@@ -588,25 +601,25 @@ infra/
 - All passwords are auto-generated and stored in `.env` (gitignored).
 - Single-node Swarm by default; add workers with `docker swarm join`.
 - For multi-node, `postgres_data` and `backup_data` need shared storage (NFS/EFS).
-- `pg_hba.conf` accepts connections from `0.0.0.0/0` with scram-sha-256 (no SSL) on the direct Postgres port `5544` — for admin use only. For app traffic, use `6543` (PgBouncer) on the overlay network.
+- `pg_hba.conf` accepts connections from `0.0.0.0/0` with scram-sha-256 on the direct Postgres port `5544` — for admin use only. For app traffic, use PgBouncer on the configured host port and `pgbouncer:6432` on the overlay network.
 
 ## Troubleshooting
 
-**"getent hosts infra_pgbouncer" returns nothing from my app's container:**
+**"getent hosts pgbouncer" returns nothing from my app's container:**
 
-Your app is not on the `infra_infra` overlay network. In your app's `docker-swarm.yml`, add the network to the service:
+Your app is not on the `infrastructure` overlay network. In your app's `docker-swarm.yml`, add the network to the service:
 
 ```yaml
 services:
   app:
     networks:
       - default        # or whichever network your app currently uses
-      - infra_infra    # add this
+      - infrastructure # add this
 
 networks:
-  infra_infra:
+  infrastructure:
     external: true
-    name: infra_infra
+    name: infrastructure
 ```
 
 Then redeploy the app: `docker stack deploy -c docker-swarm.yml myapp`. See [Service names on the overlay network](#service-names-on-the-overlay-network) above.
@@ -618,7 +631,7 @@ The role is auto-created by `initdb/02-pgbouncer-auth.sh` on fresh volume init. 
 ```bash
 cd /opt/infra
 set -a; source .env; set +a
-docker exec -i $(docker ps -q -f name=infra_postgres) \
+docker exec -i $(docker ps -q -f name=infrastructure_postgres) \
   psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<SQL
 DO \$\$
 BEGIN
@@ -632,7 +645,7 @@ END
 GRANT USAGE ON SCHEMA pgbouncer TO ${PGBOUNCER_AUTH_USER:-pgbouncer_auth};
 GRANT EXECUTE ON FUNCTION pgbouncer.get_auth(TEXT) TO ${PGBOUNCER_AUTH_USER:-pgbouncer_auth};
 SQL
-docker service update --force infra_pgbouncer
+docker service update --force infrastructure_pgbouncer
 ```
 
 **PgBouncer "cached error: password authentication failed":**

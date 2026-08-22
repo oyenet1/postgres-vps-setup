@@ -1,3 +1,11 @@
+-- ──────────────────────────────────────────────────────────────────
+-- 🏢 Company Name: Bonifade Technologies
+-- 👨‍💻 Developer: Bowofade Oyerinde
+-- 🐙 GitHub: oyenet1
+-- 📅 Created Date: 2026-07-16
+-- 🔄 Updated Date: 2026-07-16
+-- ──────────────────────────────────────────────────────────────────
+
 CREATE EXTENSION IF NOT EXISTS postgis;
 CREATE EXTENSION IF NOT EXISTS postgis_topology;
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -69,7 +77,6 @@ REVOKE ALL ON FUNCTION pgbouncer.get_auth(TEXT) FROM PUBLIC;
 CREATE EXTENSION IF NOT EXISTS postgis;
 CREATE EXTENSION IF NOT EXISTS postgis_topology;
 CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS pg_cron;
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS unaccent;

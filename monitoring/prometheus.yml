@@ -50,6 +50,13 @@ scrape_configs:
   # Reload prometheus after editing:
   #   curl -X POST http://YOUR_VPS_IP:9090/-/reload
   - job_name: apps
+    relabel_configs:
+      # Promote the custom file_sd labels → Prometheus internal meta-labels
+      # so that Prometheus actually uses /v1/metrics and http scheme.
+      - source_labels: [metrics_path]
+        target_label:  __metrics_path__
+      - source_labels: [scheme]
+        target_label:  __scheme__
     file_sd_configs:
       - files:
           - /etc/prometheus/targets/*.json

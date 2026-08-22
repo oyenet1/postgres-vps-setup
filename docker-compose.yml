@@ -1,3 +1,12 @@
+#
+# ──────────────────────────────────────────────────────────────────
+# 🏢 Company Name: Bonifade Technologies
+# 👨‍💻 Developer: Bowofade Oyerinde
+# 🐙 GitHub: oyenet1
+# 📅 Created Date: 2026-07-16
+# 🔄 Updated Date: 2026-07-16
+# ──────────────────────────────────────────────────────────────────
+#
 x-logging: &default-logging
   driver: json-file
   options:
@@ -71,17 +80,10 @@ services:
       - shared_buffers=${POSTGRES_SHARED_BUFFERS:-256MB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - target: 5432
-        published: ${POSTGRES_PORT:-5432}
-        protocol: tcp
-        mode: host
-      - target: 5432
-        published: ${POSTGRES_PORT_DIRECT:-5544}
-        protocol: tcp
-        mode: host
     networks:
-      - infra
+      infra:
+        aliases:
+          - postgres
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
@@ -120,7 +122,9 @@ services:
         protocol: tcp
         mode: host
     networks:
-      - infra
+      infra:
+        aliases:
+          - pgbouncer
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 6432"]
       interval: 10s
@@ -162,7 +166,9 @@ services:
         protocol: tcp
         mode: host
     networks:
-      - infra
+      infra:
+        aliases:
+          - pgadmin
     configs:
       - source: pgadmin_servers
         target: /pgadmin4/servers.json
@@ -189,7 +195,9 @@ services:
     volumes:
       - redis_master_data:/data
     networks:
-      - infra
+      infra:
+        aliases:
+          - redis-master
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" --no-auth-warning ping | grep -q PONG"]
       interval: 10s
@@ -223,7 +231,9 @@ services:
     volumes:
       - redis_replica_data:/data
     networks:
-      - infra
+      infra:
+        aliases:
+          - redis-replica
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" --no-auth-warning ping | grep -q PONG"]
       interval: 10s
@@ -244,7 +254,9 @@ services:
       REDIS_SENTINEL_MASTER_NAME: ${REDIS_SENTINEL_MASTER_NAME:-dbmaster}
     command: ["/bin/sh", "/redis/sentinel-entrypoint.sh"]
     networks:
-      - infra
+      infra:
+        aliases:
+          - redis-sentinel
     configs:
       - source: sentinel_entrypoint
         target: /redis/sentinel-entrypoint.sh
@@ -264,7 +276,9 @@ services:
         protocol: tcp
         mode: host
     networks:
-      - infra
+      infra:
+        aliases:
+          - redis-proxy
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 6379"]
       interval: 10s
@@ -319,7 +333,9 @@ services:
     environment:
       DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=require"
     networks:
-      - infra
+      infra:
+        aliases:
+          - postgres-exporter
     deploy:
       mode: replicated
       replicas: 1
@@ -333,7 +349,9 @@ services:
       REDIS_ADDR: redis://redis-proxy:6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
     networks:
-      - infra
+      infra:
+        aliases:
+          - redis-exporter
     deploy:
       mode: replicated
       replicas: 1
@@ -348,7 +366,9 @@ services:
     volumes:
       - /:/host:ro,rslave
     networks:
-      - infra
+      infra:
+        aliases:
+          - node-exporter
     deploy:
       mode: global
       restart_policy:
@@ -366,7 +386,9 @@ services:
         protocol: tcp
         mode: host
     networks:
-      - infra
+      infra:
+        aliases:
+          - loki
     configs:
       - source: loki_yaml
         target: /etc/loki/loki.yml
@@ -384,7 +406,9 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
-      - infra
+      infra:
+        aliases:
+          - alloy
     configs:
       - source: alloy_config
         target: /etc/alloy/config.alloy
@@ -409,7 +433,9 @@ services:
         protocol: tcp
         mode: host
     networks:
-      - infra
+      infra:
+        aliases:
+          - alertmanager
     configs:
       - source: alertmanager_yaml
         target: /etc/alertmanager/alertmanager.yml
@@ -437,7 +463,9 @@ services:
         protocol: tcp
         mode: host
     networks:
-      - infra
+      infra:
+        aliases:
+          - prometheus
     configs:
       - source: prometheus_yaml
         target: /etc/prometheus/prometheus.yml
@@ -467,7 +495,9 @@ services:
         protocol: tcp
         mode: host
     networks:
-      - infra
+      infra:
+        aliases:
+          - grafana
     configs:
       - source: grafana_dashboards
         target: /etc/grafana/provisioning/dashboards/dashboards.yml
@@ -483,7 +513,7 @@ services:
 
 networks:
   infra:
-    name: infra
+    name: ${INFRA_NETWORK_NAME:-infra}
     external: true
     driver: overlay
     attachable: true

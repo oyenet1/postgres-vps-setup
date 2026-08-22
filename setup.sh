@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+#
+# ──────────────────────────────────────────────────────────────────
+# 🏢 Company Name: Bonifade Technologies
+# 👨‍💻 Developer: Bowofade Oyerinde
+# 🐙 GitHub: oyenet1
+# 📅 Created Date: 2026-07-16
+# 🔄 Updated Date: 2026-07-16
+# ──────────────────────────────────────────────────────────────────
 set -euo pipefail
 
 RED='\033[0;31m'
@@ -230,9 +238,9 @@ prepare_env() {
 
   set_default_env POSTGRES_DB postgres
   set_default_env POSTGRES_USER postgres
-  set_default_env POSTGRES_PORT 5432
+  set_default_env INFRA_STACK_NAME infra
+  set_default_env INFRA_NETWORK_NAME infra
   set_default_env POSTGRES_PORT_DIRECT 5544
-  set_default_env POSTGRES_BIND_ADDR 127.0.0.1
   set_default_env PGBOUNCER_PORT 6543
   set_default_env PGBOUNCER_BIND_ADDR 0.0.0.0
   set_default_env PGBOUNCER_AUTH_USER pgbouncer_auth
@@ -568,9 +576,11 @@ detect_swarm_advertise_addr() {
 }
 
 ensure_infra_network() {
-  local network_name="infra"
+  local network_name
   local driver
   local scope
+
+  network_name="$(env_default INFRA_NETWORK_NAME infra)"
 
   if ! docker network inspect "$network_name" >/dev/null 2>&1; then
     log "Creating Docker overlay network: ${network_name}"
@@ -627,9 +637,24 @@ start_stack() {
   local backup_image
   local pg_image
   local build_pg_image="true"
+  local build_backup_image="true"
+  local build_network
+  local backup_r2_enabled
+  local stack_name
+  local network_name
 
   backup_image="${INFRA_BACKUP_IMAGE:-infra/backup:latest}"
   pg_image="${POSTGRES_IMAGE:-infra/postgres:latest}"
+  build_network="${DOCKER_BUILD_NETWORK:-host}"
+  backup_r2_enabled="$(env_default R2_BACKUP_ENABLED false)"
+  stack_name="$(env_default INFRA_STACK_NAME infra)"
+  network_name="$(env_default INFRA_NETWORK_NAME infra)"
+
+  if [[ -z "${INFRA_BACKUP_IMAGE:-}" && "$backup_r2_enabled" != "true" ]]; then
+    backup_image="postgres:${POSTGRES_CLIENT_IMAGE_TAG:-17-alpine}"
+    build_backup_image="false"
+    log "Using stock Postgres image for local-only backups because R2 uploads are disabled"
+  fi
 
   if [[ "${POSTGRES_IMAGE:-}" == postgis/* || "${POSTGRES_IMAGE:-}" == postgres:* ]]; then
     build_pg_image="false"
@@ -638,30 +663,34 @@ start_stack() {
   if [[ "$build_pg_image" == "true" ]]; then
     if ! docker image inspect "$pg_image" >/dev/null 2>&1; then
       log "Building postgres image: $pg_image"
-      docker build -t "$pg_image" -f Dockerfile.postgres .
+      docker build --network "$build_network" -t "$pg_image" -f Dockerfile.postgres .
     fi
   fi
 
-  if ! docker image inspect "$backup_image" >/dev/null 2>&1; then
+  if [[ "$build_backup_image" == "true" ]] && ! docker image inspect "$backup_image" >/dev/null 2>&1; then
     log "Building backup image: $backup_image"
-    docker build -t "$backup_image" -f Dockerfile.backup .
+    docker build --network "$build_network" -t "$backup_image" -f Dockerfile.backup .
   fi
 
   log "Removing old stack (if any) to allow config updates"
-  docker stack rm infra 2>/dev/null || true
-  wait_for_stack_removed infra
+  docker stack rm "$stack_name" 2>/dev/null || true
+  wait_for_stack_removed "$stack_name"
   ensure_infra_network
 
   log "Loading environment from .env"
   set -a
   source .env
+  export POSTGRES_IMAGE="$pg_image"
+  export INFRA_BACKUP_IMAGE="$backup_image"
+  export INFRA_STACK_NAME="$stack_name"
+  export INFRA_NETWORK_NAME="$network_name"
   set +a
 
   log "Enforcing correct permissions on monitoring targets"
   chmod 644 monitoring/targets/*.json 2>/dev/null || true
 
   log "Deploying stack"
-  ${compose_cmd} infra
+  ${compose_cmd} "$stack_name"
 }
 
 configure_database_auth() {
@@ -675,6 +704,8 @@ configure_database_auth() {
   local auth_user
   local auth_password
   local pg_image
+  local network_name
+  local stack_name
 
   pg_user="$(env_default POSTGRES_USER postgres)"
   pg_db="$(env_default POSTGRES_DB postgres)"
@@ -682,11 +713,13 @@ configure_database_auth() {
   auth_user="$(env_default PGBOUNCER_AUTH_USER pgbouncer_auth)"
   auth_password="$(env_value PGBOUNCER_AUTH_PASSWORD)"
   pg_image="postgres:${POSTGRES_CLIENT_IMAGE_TAG:-17-alpine}"
+  network_name="$(env_default INFRA_NETWORK_NAME infra)"
+  stack_name="$(env_default INFRA_STACK_NAME infra)"
 
   log "Waiting for PostgreSQL"
   local attempts=0
   while [[ "$attempts" -lt 60 ]]; do
-    if docker run --rm --network infra "$pg_image" pg_isready -h postgres -U "$pg_user" -d "$pg_db" >/dev/null 2>&1; then
+    if docker run --rm --network "$network_name" "$pg_image" pg_isready -h postgres -U "$pg_user" -d "$pg_db" >/dev/null 2>&1; then
       break
     fi
     attempts=$((attempts + 1))
@@ -696,7 +729,7 @@ configure_database_auth() {
     fail "PostgreSQL did not become ready after 120s"
   fi
 
-  docker run --rm -i --network infra -e PGPASSWORD="$pg_password" "$pg_image" \
+  docker run --rm -i --network "$network_name" -e PGPASSWORD="$pg_password" "$pg_image" \
     psql \
       -h postgres \
       -U "$pg_user" \
@@ -741,7 +774,7 @@ SELECT format('GRANT EXECUTE ON FUNCTION pgbouncer.get_auth(TEXT) TO %I', :'pgbo
 \gexec
 SQL
 
-  docker service update --force infra_pgbouncer >/dev/null 2>&1 || true
+  docker service update --force "${stack_name}_pgbouncer" >/dev/null 2>&1 || true
   ok "Configured PgBouncer auth role"
 }
 
@@ -756,11 +789,15 @@ verify_pgbouncer_dynamic_routing() {
   local probe_password
   local probe_result
   local probe_status
+  local network_name
+  local stack_name
 
   pg_user="$(env_default POSTGRES_USER postgres)"
   pg_password="$(env_value POSTGRES_PASSWORD)"
   pg_image="postgres:${POSTGRES_CLIENT_IMAGE_TAG:-17-alpine}"
   pgbouncer_port="$(env_default PGBOUNCER_PORT 6543)"
+  network_name="$(env_default INFRA_NETWORK_NAME infra)"
+  stack_name="$(env_default INFRA_STACK_NAME infra)"
   probe_suffix="$(date +%s)"
   probe_db="pgbouncer_probe_db_${probe_suffix}"
   probe_role="pgbouncer_probe_role_${probe_suffix}"
@@ -768,7 +805,7 @@ verify_pgbouncer_dynamic_routing() {
 
   log "Verifying PgBouncer wildcard routing with a temporary database and role"
 
-  docker run --rm -i --network infra -e PGPASSWORD="$pg_password" "$pg_image" \
+  docker run --rm -i --network "$network_name" -e PGPASSWORD="$pg_password" "$pg_image" \
     psql \
       -h postgres \
       -U "$pg_user" \
@@ -803,7 +840,7 @@ SQL
   probe_status=$?
   set -e
 
-  docker run --rm -i --network infra -e PGPASSWORD="$pg_password" "$pg_image" \
+  docker run --rm -i --network "$network_name" -e PGPASSWORD="$pg_password" "$pg_image" \
     psql \
       -h postgres \
       -U "$pg_user" \
@@ -819,7 +856,7 @@ SELECT format('DROP ROLE IF EXISTS %I', :'probe_role')
 SQL
 
   if [[ "$probe_status" -ne 0 || "$probe_result" != "${probe_db}|${probe_role}" ]]; then
-    fail "PgBouncer could not connect to a newly-created database and role. Check infra_pgbouncer logs."
+    fail "PgBouncer could not connect to a newly-created database and role. Check ${stack_name}_pgbouncer logs."
   fi
 
   ok "PgBouncer accepts future databases and login roles without config changes"
@@ -895,8 +932,8 @@ EOF
   cat <<EOF
 
 Postgres direct:
-  Host: 127.0.0.1
-  Port: $(env_default POSTGRES_PORT 5432)
+  Host: ${host}
+  Port: $(env_default POSTGRES_PORT_DIRECT 5544)
 
 PgBouncer:
   Host: ${host}
@@ -921,13 +958,13 @@ Backups:
   R2: $(env_default R2_BACKUP_ENABLED false)
 
 Useful commands:
-  docker stack ps infra
-  docker service logs infra_pgbouncer -f
+  docker stack ps $(env_default INFRA_STACK_NAME infra)
+  docker service logs $(env_default INFRA_STACK_NAME infra)_pgbouncer -f
   ./scripts/deploy.sh
 
 Manual deploy:
-  docker network create --driver overlay --attachable infra 2>/dev/null || true
-  docker stack deploy -c docker-compose.yml infra
+  docker network create --driver overlay --attachable $(env_default INFRA_NETWORK_NAME infra) 2>/dev/null || true
+  docker stack deploy -c docker-compose.yml $(env_default INFRA_STACK_NAME infra)
 EOF
 }
 
@@ -935,7 +972,10 @@ main() {
   parse_args "$@"
 
   if [[ $EUID -ne 0 && "$START_STACK" == "true" ]]; then
-    fail "Run with sudo so Docker install, firewall, and bind mounts work reliably."
+    if ! command -v docker >/dev/null 2>&1; then
+      fail "Run with sudo for the first bootstrap so Docker can be installed."
+    fi
+    warn "Running without sudo. Docker deployment will continue, but Docker install and UFW changes are skipped."
   fi
 
   mkdir -p "$TARGET_DIR"
@@ -944,7 +984,7 @@ main() {
   [[ -f docker-compose.yml ]] || fail "docker-compose.yml not found in ${TARGET_DIR}"
   [[ -f .env.example ]] || fail ".env.example not found in ${TARGET_DIR}"
 
-  if [[ "$START_STACK" == "true" ]] && command -v docker >/dev/null 2>&1; then
+  if [[ "$START_STACK" == "true" && $EUID -eq 0 ]] && command -v docker >/dev/null 2>&1; then
     fix_containerd_storage
   fi
 
@@ -956,8 +996,12 @@ main() {
   render_alertmanager_config
 
   if [[ "$START_STACK" == "true" ]]; then
-    install_docker
-    configure_firewall
+    if [[ $EUID -eq 0 ]]; then
+      install_docker
+      configure_firewall
+    else
+      ok "Using the existing Docker installation and current firewall state"
+    fi
     start_stack
     configure_database_auth
     verify_stack

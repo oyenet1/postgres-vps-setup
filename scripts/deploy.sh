@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
+#
+# ──────────────────────────────────────────────────────────────────
+# 🏢 Company Name: Bonifade Technologies
+# 👨‍💻 Developer: Bowofade Oyerinde
+# 🐙 GitHub: oyenet1
+# 📅 Created Date: 2026-07-16
+# 🔄 Updated Date: 2026-07-16
+# ──────────────────────────────────────────────────────────────────
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
-STACK_NAME="${STACK_NAME:-infra}"
+STACK_NAME="${STACK_NAME:-${INFRA_STACK_NAME:-infra}}"
 COMPOSE_FILES=(-c docker-compose.yml)
 
 if [[ -f .env ]]; then
@@ -34,16 +42,18 @@ if [[ "$NODE_STATE" != "active" || "$IS_MANAGER" != "true" ]]; then
   fi
 fi
 
-if docker network inspect infra >/dev/null 2>&1; then
-  DRIVER="$(docker network inspect infra --format '{{.Driver}}')"
-  SCOPE="$(docker network inspect infra --format '{{.Scope}}')"
+NETWORK_NAME="${INFRA_NETWORK_NAME:-infra}"
+
+if docker network inspect "$NETWORK_NAME" >/dev/null 2>&1; then
+  DRIVER="$(docker network inspect "$NETWORK_NAME" --format '{{.Driver}}')"
+  SCOPE="$(docker network inspect "$NETWORK_NAME" --format '{{.Scope}}')"
   if [[ "$DRIVER" != "overlay" || "$SCOPE" != "swarm" ]]; then
-    echo "[deploy] network infra exists but is ${DRIVER}/${SCOPE}, expected overlay/swarm" >&2
+    echo "[deploy] network ${NETWORK_NAME} exists but is ${DRIVER}/${SCOPE}, expected overlay/swarm" >&2
     exit 1
   fi
 else
-  echo "[deploy] Creating overlay network: infra"
-  docker network create --driver overlay --attachable infra >/dev/null
+  echo "[deploy] Creating overlay network: ${NETWORK_NAME}"
+  docker network create --driver overlay --attachable "$NETWORK_NAME" >/dev/null
 fi
 
 echo "[deploy] Rendering generated config from .env"
@@ -52,7 +62,7 @@ echo "[deploy] Rendering generated config from .env"
 echo "[deploy] Deploying stack: $STACK_NAME"
 docker stack deploy "${COMPOSE_FILES[@]}" "$STACK_NAME"
 
-if [[ "$STACK_NAME" == "infra" ]]; then
+if [[ "$STACK_NAME" == "infra" || "$STACK_NAME" == "infrastructure" ]]; then
   ./scripts/configure-pgbouncer-auth.sh
 fi
 

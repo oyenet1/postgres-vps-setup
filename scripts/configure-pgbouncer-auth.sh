@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+#
+# ──────────────────────────────────────────────────────────────────
+# 🏢 Company Name: Bonifade Technologies
+# 👨‍💻 Developer: Bowofade Oyerinde
+# 🐙 GitHub: oyenet1
+# 📅 Created Date: 2026-07-16
+# 🔄 Updated Date: 2026-07-16
+# ──────────────────────────────────────────────────────────────────
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -17,6 +25,8 @@ POSTGRES_DB="${POSTGRES_DB:-postgres}"
 POSTGRES_USER="${POSTGRES_USER:-postgres}"
 PGBOUNCER_AUTH_USER="${PGBOUNCER_AUTH_USER:-pgbouncer_auth}"
 POSTGRES_CLIENT_IMAGE_TAG="${POSTGRES_CLIENT_IMAGE_TAG:-17-alpine}"
+STACK_NAME="${STACK_NAME:-${INFRA_STACK_NAME:-infra}}"
+NETWORK_NAME="${INFRA_NETWORK_NAME:-infra}"
 
 if [[ -z "${POSTGRES_PASSWORD:-}" ]]; then
   echo "[pgbouncer-auth] POSTGRES_PASSWORD is missing in .env" >&2
@@ -33,7 +43,7 @@ PG_IMAGE="postgres:${POSTGRES_CLIENT_IMAGE_TAG}"
 echo "[pgbouncer-auth] Waiting for PostgreSQL"
 attempts=0
 while [[ "$attempts" -lt 60 ]]; do
-  if docker run --rm --network infra "$PG_IMAGE" \
+  if docker run --rm --network "$NETWORK_NAME" "$PG_IMAGE" \
     pg_isready -h postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1; then
     break
   fi
@@ -47,7 +57,7 @@ if [[ "$attempts" -eq 60 ]]; then
   exit 1
 fi
 
-docker run --rm -i --network infra -e PGPASSWORD="$POSTGRES_PASSWORD" "$PG_IMAGE" \
+docker run --rm -i --network "$NETWORK_NAME" -e PGPASSWORD="$POSTGRES_PASSWORD" "$PG_IMAGE" \
   psql \
     -h postgres \
     -U "$POSTGRES_USER" \
@@ -92,6 +102,6 @@ SELECT format('GRANT EXECUTE ON FUNCTION pgbouncer.get_auth(TEXT) TO %I', :'pgbo
 \gexec
 SQL
 
-docker service update --force infra_pgbouncer >/dev/null 2>&1 || true
+docker service update --force "${STACK_NAME}_pgbouncer" >/dev/null 2>&1 || true
 
 echo "[pgbouncer-auth] PgBouncer auth query is configured"
