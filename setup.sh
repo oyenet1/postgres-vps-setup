@@ -240,6 +240,9 @@ prepare_env() {
   set_default_env POSTGRES_USER postgres
   set_default_env INFRA_STACK_NAME infra
   set_default_env INFRA_NETWORK_NAME infra
+  set_default_env PUBLIC_HOST 127.0.0.1
+  set_default_env PROBE_HOST 127.0.0.1
+  set_default_env DOCKER_BUILD_NETWORK host
   set_default_env POSTGRES_PORT_DIRECT 5544
   set_default_env PGBOUNCER_PORT 6543
   set_default_env PGBOUNCER_BIND_ADDR 0.0.0.0
@@ -663,13 +666,19 @@ start_stack() {
   if [[ "$build_pg_image" == "true" ]]; then
     if ! docker image inspect "$pg_image" >/dev/null 2>&1; then
       log "Building postgres image: $pg_image"
-      docker build --network "$build_network" -t "$pg_image" -f Dockerfile.postgres .
+      if ! docker build --network "$build_network" -t "$pg_image" -f Dockerfile.postgres .; then
+        warn "Docker build with --network $build_network failed, retrying without network flag"
+        docker build -t "$pg_image" -f Dockerfile.postgres .
+      fi
     fi
   fi
 
   if [[ "$build_backup_image" == "true" ]] && ! docker image inspect "$backup_image" >/dev/null 2>&1; then
     log "Building backup image: $backup_image"
-    docker build --network "$build_network" -t "$backup_image" -f Dockerfile.backup .
+    if ! docker build --network "$build_network" -t "$backup_image" -f Dockerfile.backup .; then
+      warn "Docker build with --network $build_network failed, retrying without network flag"
+      docker build -t "$backup_image" -f Dockerfile.backup .
+    fi
   fi
 
   log "Removing old stack (if any) to allow config updates"
@@ -798,6 +807,7 @@ verify_pgbouncer_dynamic_routing() {
   pgbouncer_port="$(env_default PGBOUNCER_PORT 6543)"
   network_name="$(env_default INFRA_NETWORK_NAME infra)"
   stack_name="$(env_default INFRA_STACK_NAME infra)"
+  probe_host="$(env_default PROBE_HOST "${PUBLIC_HOST:-127.0.0.1}")"
   probe_suffix="$(date +%s)"
   probe_db="pgbouncer_probe_db_${probe_suffix}"
   probe_role="pgbouncer_probe_role_${probe_suffix}"
@@ -831,7 +841,7 @@ SQL
   probe_result="$(
     docker run --rm --network host -e PGPASSWORD="$probe_password" "$pg_image" \
       psql \
-        -h 127.0.0.1 \
+        -h "$probe_host" \
         -p "$pgbouncer_port" \
         -U "$probe_role" \
         -d "$probe_db" \
@@ -873,18 +883,20 @@ verify_stack() {
   local redis_password
   local pg_image
   local attempts
+  local probe_host
 
   pg_user="$(env_default POSTGRES_USER postgres)"
   pg_db="$(env_default POSTGRES_DB postgres)"
   pg_password="$(env_value POSTGRES_PASSWORD)"
   redis_password="$(env_value REDIS_PASSWORD)"
   pg_image="postgres:${POSTGRES_CLIENT_IMAGE_TAG:-17-alpine}"
+  probe_host="$(env_default PROBE_HOST "${PUBLIC_HOST:-127.0.0.1}")"
 
   attempts=0
   log "Waiting for PgBouncer on host port $(env_default PGBOUNCER_PORT 6543)"
   while [[ "$attempts" -lt 30 ]]; do
     if docker run --rm --network host -e PGPASSWORD="$pg_password" "$pg_image" \
-      psql -h 127.0.0.1 -p "$(env_default PGBOUNCER_PORT 6543)" -U "$pg_user" -d "$pg_db" -c 'SELECT 1;' >/dev/null 2>&1; then
+      psql -h "$probe_host" -p "$(env_default PGBOUNCER_PORT 6543)" -U "$pg_user" -d "$pg_db" -c 'SELECT 1;' >/dev/null 2>&1; then
       break
     fi
     attempts=$((attempts + 1))
@@ -900,7 +912,7 @@ verify_stack() {
   log "Waiting for Redis proxy on host port $(env_default REDIS_PORT 6379)"
   while [[ "$attempts" -lt 30 ]]; do
     if docker run --rm --network host redis:7-alpine \
-      redis-cli -h 127.0.0.1 -p "$(env_default REDIS_PORT 6379)" -a "$redis_password" --no-auth-warning ping 2>/dev/null | grep -q PONG; then
+      redis-cli -h "$probe_host" -p "$(env_default REDIS_PORT 6379)" -a "$redis_password" --no-auth-warning ping 2>/dev/null | grep -q PONG; then
       break
     fi
     attempts=$((attempts + 1))
