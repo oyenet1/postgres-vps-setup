@@ -1,0 +1,12 @@
+[
+  {
+    "targets": ["ajoyo_app:3007"],
+    "labels": {
+      "job": "apps",
+      "service": "ajoyo",
+      "env": "production",
+      "metrics_path": "/metrics",
+      "scheme": "http"
+    }
+  }
+]
