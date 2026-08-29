@@ -1,0 +1,41 @@
+#
+# ──────────────────────────────────────────────────────────────────
+# 🏢 Company Name: Bonifade Technologies
+# 👨‍💻 Developer: Bowofade Oyerinde
+# 🐙 GitHub: oyenet1
+# 📅 Created Date: 2026-08-29
+# ──────────────────────────────────────────────────────────────────
+#
+# Systemd service to auto-deploy the infra Docker Swarm stack on boot.
+# Installed via: sudo ./systemd/install-service.sh
+#
+
+[Unit]
+Description=Infra Docker Swarm Stack (Postgres, Redis, Monitoring)
+Documentation=https://github.com/oyenet1/postgres-vps-setup
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/fade_networker/Documents/infra
+EnvironmentFile=/home/fade_networker/Documents/infra/.env
+ExecStart=/home/fade_networker/Documents/infra/scripts/deploy.sh
+ExecStop=/usr/bin/docker stack rm infra
+
+# Give services time to start/stop
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+# Restart on failure with a delay
+Restart=on-failure
+RestartSec=30
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=infra-stack
+
+[Install]
+WantedBy=multi-user.target

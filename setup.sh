@@ -98,7 +98,7 @@ ensure_env_value() {
   current="$(env_value "$key" || true)"
 
   case "$current" in
-    ""|change_me_*|password|password1234|admin|admin123|your_token_here)
+    ""|change_me_*)
       generated="$(random_secret)"
       set_env "$key" "$generated"
       ;;
