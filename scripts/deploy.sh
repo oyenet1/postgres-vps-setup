@@ -61,8 +61,16 @@ echo "[deploy] Rendering generated config from .env"
 
 echo "[deploy] Normalizing permissions on configs and certificates"
 chmod 755 pgbouncer postgres_config initdb redis monitoring grafana templates 2>/dev/null || true
-chmod 644 pgbouncer/* postgres_config/* initdb/* redis/* templates/* monitoring/* 2>/dev/null || true
+# NOTE: use find, not `chmod 644 monitoring/*` — the glob also hits
+# subdirectories (alloy/, targets/) and strips their +x bit, which makes
+# every file underneath fail with "Permission denied".
+find pgbouncer postgres_config initdb redis templates monitoring grafana -type d -exec chmod 755 {} + 2>/dev/null || true
+find pgbouncer postgres_config initdb redis templates monitoring grafana -type f -not -path "*/secrets/*" -exec chmod 644 {} + 2>/dev/null || true
 chmod 755 redis/sentinel-entrypoint.sh templates/backup.sh initdb/02-pgbouncer-auth.sh 2>/dev/null || true
+# Prometheus bearer-token files (created manually on the host, never in git)
+mkdir -p monitoring/secrets 2>/dev/null || true
+chmod 700 monitoring/secrets 2>/dev/null || true
+chmod 600 monitoring/secrets/* 2>/dev/null || true
 
 echo "[deploy] Deploying stack: $STACK_NAME"
 docker stack deploy "${COMPOSE_FILES[@]}" "$STACK_NAME"

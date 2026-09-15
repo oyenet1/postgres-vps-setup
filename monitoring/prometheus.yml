@@ -108,13 +108,29 @@ scrape_configs:
         target_label: env
         replacement: "production"
 
+      # Lodgestatus gates /v1/metrics with Bearer METRICS_TOKEN, scraped by
+      # the dedicated authenticated file_sd jobs below. Drop it here so this
+      # unauthenticated swarm job does not spam 404s.
+      - source_labels: [__meta_dockerswarm_service_label_com_docker_stack_namespace]
+        regex: ".*lodgestatus.*"
+        action: drop
+      - source_labels: [__meta_dockerswarm_container_label_com_docker_stack_namespace]
+        regex: ".*lodgestatus.*"
+        action: drop
+
       # Set job label to "apps" so Grafana queries match
       - target_label: job
         replacement: apps
 
   # ─── App scrapes (file_sd fallback) ─────────────────────────────
+  # Generic job for OPEN endpoints only (e.g. ajoyo /metrics).
+  # Lodgestatus targets are dropped here — they need Bearer auth and are
+  # covered by the jobs below.
   - job_name: apps
     relabel_configs:
+      - source_labels: [service]
+        regex: "lodgestatus.*"
+        action: drop
       - source_labels: [metrics_path]
         target_label:  __metrics_path__
       - source_labels: [scheme]
@@ -122,4 +138,38 @@ scrape_configs:
     file_sd_configs:
       - files:
           - /etc/prometheus/targets/*.json
+        refresh_interval: 30s
+
+  # ─── Lodgestatus (authenticated) ────────────────────────────────
+  # /v1/metrics requires Authorization: Bearer $METRICS_TOKEN
+  # (see lodgestatus server/src/shared/middlewares/metrics-auth.ts).
+  # Token files are mounted from monitoring/secrets/ (gitignored, created
+  # on the VPS only — never committed). Prod and staging use separate files
+  # because swarm-deploy.sh generates a distinct METRICS_TOKEN per env.
+  - job_name: apps-lodgestatus-prod
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/secrets/lodgestatus_metrics_token
+    relabel_configs:
+      - source_labels: [metrics_path]
+        target_label: __metrics_path__
+      - source_labels: [scheme]
+        target_label: __scheme__
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets/lodgestatus.json
+        refresh_interval: 30s
+
+  - job_name: apps-lodgestatus-staging
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/secrets/lodgestatus_staging_metrics_token
+    relabel_configs:
+      - source_labels: [metrics_path]
+        target_label: __metrics_path__
+      - source_labels: [scheme]
+        target_label: __scheme__
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets/lodgestatus-staging.json
         refresh_interval: 30s

@@ -44,6 +44,11 @@ services:
       infra:
         aliases:
           - postgres
+    ports:
+      - target: 5432
+        published: ${POSTGRES_PORT_DIRECT:-5544}
+        protocol: tcp
+        mode: host
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
@@ -377,6 +382,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./monitoring/alert.rules.yml:/etc/prometheus/alert.rules.yml:ro
+      - ./monitoring/secrets/lodgestatus_metrics_token:/etc/prometheus/secrets/lodgestatus_metrics_token:ro
+      - ./monitoring/secrets/lodgestatus_staging_metrics_token:/etc/prometheus/secrets/lodgestatus_staging_metrics_token:ro
     ports:
       - target: 9090
         published: ${PROMETHEUS_PORT:-9090}

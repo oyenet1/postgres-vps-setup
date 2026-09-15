@@ -5,6 +5,8 @@
 
 # Generated files
 postgres_data/
+monitoring/secrets/*
+!monitoring/secrets/.gitkeep
 pgbouncer/pgbouncer-cert.pem
 pgbouncer/pgbouncer-key.pem
 postgres_config/server-cert.pem
