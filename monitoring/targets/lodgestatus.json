@@ -2,7 +2,6 @@
   {
     "targets": ["lodgestatus_app:3004"],
     "labels": {
-      "job": "apps",
       "service": "lodgestatus",
       "env": "production",
       "metrics_path": "/v1/metrics",

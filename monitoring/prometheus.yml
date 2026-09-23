@@ -108,9 +108,8 @@ scrape_configs:
         target_label: env
         replacement: "production"
 
-      # Lodgestatus gates /v1/metrics with Bearer METRICS_TOKEN, scraped by
-      # the dedicated authenticated file_sd jobs below. Drop it here so this
-      # unauthenticated swarm job does not spam 404s.
+      # Lodgestatus is covered by the dedicated file_sd jobs below.
+      # Drop it here so this swarm job does not double-scrape it.
       - source_labels: [__meta_dockerswarm_service_label_com_docker_stack_namespace]
         regex: ".*lodgestatus.*"
         action: drop
@@ -124,8 +123,8 @@ scrape_configs:
 
   # ─── App scrapes (file_sd fallback) ─────────────────────────────
   # Generic job for OPEN endpoints only (e.g. ajoyo /metrics).
-  # Lodgestatus targets are dropped here — they need Bearer auth and are
-  # covered by the jobs below.
+  # Lodgestatus targets are dropped here — they are covered by the
+  # dedicated jobs below (which keep their own job names).
   - job_name: apps
     relabel_configs:
       - source_labels: [service]
@@ -140,16 +139,21 @@ scrape_configs:
           - /etc/prometheus/targets/*.json
         refresh_interval: 30s
 
-  # ─── Lodgestatus (authenticated) ────────────────────────────────
-  # /v1/metrics requires Authorization: Bearer $METRICS_TOKEN
-  # (see lodgestatus server/src/shared/middlewares/metrics-auth.ts).
-  # Token files are mounted from monitoring/secrets/ (gitignored, created
-  # on the VPS only — never committed). Prod and staging use separate files
-  # because swarm-deploy.sh generates a distinct METRICS_TOKEN per env.
+  # ─── Lodgestatus (dedicated jobs) ───────────────────────────────
+  # The app currently serves /v1/metrics WITHOUT auth on the trusted
+  # `infra` overlay (see server/src/index.ts serveMetrics). No
+  # `authorization` block here — a missing credentials_file makes every
+  # scrape fail (up=0) and fires AppDown even when the app is healthy.
+  #
+  # If you later enable METRICS_TOKEN on the app, add back:
+  #   authorization:
+  #     type: Bearer
+  #     credentials_file: /etc/prometheus/secrets/lodgestatus_staging_metrics_token
+  # and create that file on the VPS with the same value as server/.env.
+  #
+  # Do NOT set a `job` label in the target JSON — it overrides
+  # job_name and makes AppDown report the wrong job.
   - job_name: apps-lodgestatus-prod
-    authorization:
-      type: Bearer
-      credentials_file: /etc/prometheus/secrets/lodgestatus_metrics_token
     relabel_configs:
       - source_labels: [metrics_path]
         target_label: __metrics_path__
@@ -161,9 +165,6 @@ scrape_configs:
         refresh_interval: 30s
 
   - job_name: apps-lodgestatus-staging
-    authorization:
-      type: Bearer
-      credentials_file: /etc/prometheus/secrets/lodgestatus_staging_metrics_token
     relabel_configs:
       - source_labels: [metrics_path]
         target_label: __metrics_path__

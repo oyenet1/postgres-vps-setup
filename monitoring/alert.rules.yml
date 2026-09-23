@@ -27,7 +27,10 @@ groups:
           summary: Node exporter is down
 
       - alert: AppDown
-        expr: up{job="apps"} == 0
+        # Matches job=apps AND dedicated jobs (apps-lodgestatus-prod,
+        # apps-lodgestatus-staging, …). A bare job="apps" misses the
+        # dedicated scrapes entirely.
+        expr: up{job=~"apps.*"} == 0
         for: 2m
         labels:
           severity: critical
